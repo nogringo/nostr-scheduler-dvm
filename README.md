@@ -1,39 +1,71 @@
-<!--
-This README describes the package. If you publish this package to pub.dev,
-this README's contents appear on the landing page for your package.
+# Nostr Scheduler DVM
 
-For information about how to write a good package README, see the guide for
-[writing package pages](https://dart.dev/tools/pub/writing-package-pages).
+Portable Dart core for a Nostr Scheduler DVM.
 
-For general information about developing packages, see the Dart guide for
-[creating packages](https://dart.dev/tools/pub/create-packages)
-and the Flutter guide for
-[developing packages and plugins](https://flutter.dev/to/develop-packages).
--->
-
-TODO: Put a short description of the package here that helps potential users
-know whether this package might be useful for them.
+The package accepts encrypted `kind:5905` schedule requests, publishes the
+signed target event at `schedule_at`, handles `kind:5` cancellations, and sends
+private encrypted `kind:7000` feedback.
 
 ## Features
 
-TODO: List what your package can do. Maybe include images, gifs, or videos.
-
-## Getting started
-
-TODO: List prerequisites and provide or point to information on how to
-start using the package.
+- Scheduler DVM runtime for the draft Scheduler DVM protocol.
+- NIP-44 request decryption and feedback encryption.
+- NIP-65 relay resolution for the DVM pubkey.
+- Optional NIP-89 discovery announcement.
+- Sembast-backed persistence with the database supplied by the caller.
+- Portable library code: no `dart:io` imports in `lib/`.
 
 ## Usage
 
-TODO: Include short and useful examples for package users. Add longer examples
-to `/example` folder.
+Use a dedicated NDK instance logged in as the DVM:
 
 ```dart
-const like = 'sample';
+final dvm = SchedulerDvm(
+  SchedulerDvmConfig(
+    ndk: dvmNdk,
+    database: database,
+    bootstrapRelays: ['wss://relay.damus.io'],
+  ),
+);
+
+await dvm.start();
 ```
 
-## Additional information
+Or embed a DVM in an app that already has an NDK account logged in by passing
+the Scheduler DVM signer explicitly:
 
-TODO: Tell users more about the package: where to find more information, how to
-contribute to the package, how to file issues, what response they can expect
-from the package authors, and more.
+```dart
+final dvm = SchedulerDvm(
+  SchedulerDvmConfig(
+    ndk: appNdk,
+    signer: schedulerDvmSigner,
+    database: database,
+    bootstrapRelays: ['wss://relay.damus.io'],
+  ),
+);
+
+await dvm.start();
+```
+
+`SchedulerDvmConfig` builds its internal job store from the supplied Sembast
+database and uses `ndk.config.eventVerifier` to validate the scheduled signed
+event. The caller owns the NDK lifecycle, signer lifecycle, and database
+lifecycle.
+
+## Protocol
+
+- Schedule requests: `kind:5905`, NIP-44 encrypted to the DVM pubkey, tagged
+  with `["p", "<dvm_pubkey>"]` and `["encrypted"]`.
+- Feedback: `kind:7000`, encrypted with a one-time ephemeral key, tagged with
+  `["r", "<job_id>"]` and `["ephemeral-pubkey", "<ephemeral_pubkey>"]`.
+- Cancellation: standard `kind:5` delete event tagging the original
+  `kind:5905` event id.
+- Discovery: optional NIP-89 `kind:31990` announcement for `kind:5905`.
+
+## Checks
+
+```sh
+dart format --set-exit-if-changed .
+dart analyze
+dart test
+```
