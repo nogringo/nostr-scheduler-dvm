@@ -132,9 +132,6 @@ class SchedulerDvmConfig {
       final response = ndk.requests.query(
         filter: Filter(kinds: [Metadata.kKind], authors: [dvmPubkey], limit: 1),
         explicitRelays: relays.requestRelays,
-        cacheRead: true,
-        cacheWrite: true,
-        timeout: const Duration(seconds: 8),
       );
       await for (final event in response.stream) {
         final parsed = Metadata.fromEvent(event);

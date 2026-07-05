@@ -1,3 +1,8 @@
+## 0.1.1
+
+- Let NDK generate subscription ids instead of hardcoding them.
+- Rely on NDK defaults for query timeouts and metadata caching.
+
 ## 0.1.0
 
 - Extracted portable Scheduler DVM library.

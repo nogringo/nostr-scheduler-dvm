@@ -110,7 +110,6 @@ class SchedulerDvm {
   void _startSubscriptions() {
     final scheduleResponse = config.ndk.requests.subscription(
       filter: Filter(kinds: [requestKind], pTags: [config.dvmPubkey]),
-      id: 'scheduler-dvm-5905',
       explicitRelays: _relays.requestRelays,
       cacheRead: false,
       cacheWrite: false,
@@ -124,7 +123,6 @@ class SchedulerDvm {
 
     final deletionResponse = config.ndk.requests.subscription(
       filter: Filter(kinds: [deleteKind]),
-      id: 'scheduler-dvm-5',
       explicitRelays: _relays.requestRelays,
       cacheRead: false,
       cacheWrite: false,
@@ -146,7 +144,6 @@ class SchedulerDvm {
       explicitRelays: _relays.requestRelays,
       cacheRead: false,
       cacheWrite: false,
-      timeout: const Duration(seconds: 8),
     );
     await for (final event in response.stream) {
       await handler(event);
