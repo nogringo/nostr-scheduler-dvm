@@ -1,3 +1,7 @@
+## 0.2.1
+
+- Test against `nostr_event_scheduler: ^0.4.0`.
+
 ## 0.2.0
 
 - Require `ndk: ^0.9.0`.
