@@ -38,7 +38,6 @@ void main() {
 
   setUp(() async {
     relay = MockRelay(name: 'scheduler relay');
-    await relay.startServer();
 
     clientKey = Bip340.generatePrivateKey();
     dvmKey = Bip340.generatePrivateKey();
@@ -56,9 +55,20 @@ void main() {
       privkey: dvmKey.privateKey!,
     );
 
-    await _injectNip65(clientNdk, relay, clientKey);
-    await _injectNip65(dvmNdk, relay, dvmKey);
-    await _injectMetadata(dvmNdk, relay, dvmKey);
+    final clientNip65 = _nip65For(clientKey, relay);
+    final dvmNip65 = _nip65For(dvmKey, relay);
+    final dvmMetadata = await _signedMetadata(dvmNdk, dvmKey);
+
+    // The mock relay serves NIP-65 and metadata from these maps, not from the
+    // events it stores.
+    await relay.startServer(
+      nip65s: {clientKey: clientNip65, dvmKey: dvmNip65},
+      metadatas: {dvmKey.publicKey: dvmMetadata},
+    );
+
+    await _cacheNip65(clientNdk, clientNip65);
+    await _cacheNip65(dvmNdk, dvmNip65);
+    await dvmNdk.config.cache.saveEvent(dvmMetadata);
 
     final broadcastDb = await sembast_memory.databaseFactoryMemory.openDatabase(
       'broadcast-${relay.url}.db',
@@ -77,7 +87,7 @@ void main() {
       broadcast: clientBroadcast,
       db: schedulerDb,
     );
-    await clientScheduler.startListening();
+    await clientScheduler.startListening(pubkey: clientKey.publicKey);
 
     final dvmDb = await sembast_memory.databaseFactoryMemory.openDatabase(
       'dvm-${relay.url}.db',
@@ -182,7 +192,8 @@ void main() {
 
     final job = await clientScheduler.schedule(
       target,
-      dvmKey.publicKey,
+      [dvmKey.publicKey],
+      pubkey: clientKey.publicKey,
       at: DateTime.now().add(const Duration(minutes: 1)),
       relays: [relay.url],
     );
@@ -211,7 +222,8 @@ void main() {
 
       final job = await clientScheduler.schedule(
         target,
-        dvmKey.publicKey,
+        [dvmKey.publicKey],
+        pubkey: clientKey.publicKey,
         at: DateTime.now().add(const Duration(minutes: 1)),
         relays: [relay.url],
       );
@@ -248,13 +260,14 @@ void main() {
 
     final job = await clientScheduler.schedule(
       target,
-      dvmKey.publicKey,
+      [dvmKey.publicKey],
+      pubkey: clientKey.publicKey,
       at: DateTime.now().add(const Duration(seconds: 1)),
       relays: [relay.url],
     );
 
     await _waitFor(
-      () => relay.storedEvents.any((event) => event.id == target.id),
+      () => relay.receivedEvents.any((event) => event.id == target.id),
     );
     await _waitFor(() async {
       final stored = await dvmStore.getJob(job.jobId);
@@ -278,7 +291,8 @@ void main() {
 
     final job = await clientScheduler.schedule(
       target,
-      dvmKey.publicKey,
+      [dvmKey.publicKey],
+      pubkey: clientKey.publicKey,
       at: DateTime.now().add(const Duration(seconds: 10)),
       relays: [relay.url],
     );
@@ -288,7 +302,7 @@ void main() {
       return stored?.status == DvmJobStatus.scheduled;
     });
 
-    await clientScheduler.cancel(job.jobId);
+    await clientScheduler.cancel(job.jobId, pubkey: clientKey.publicKey);
 
     await _waitFor(() async {
       final stored = await dvmStore.getJob(job.jobId);
@@ -302,7 +316,7 @@ void main() {
     );
 
     await Future<void>.delayed(const Duration(milliseconds: 500));
-    expect(relay.storedEvents.any((event) => event.id == target.id), isFalse);
+    expect(relay.receivedEvents.any((event) => event.id == target.id), isFalse);
   });
 
   test('sends error feedback for invalid payloads', () async {
@@ -349,13 +363,14 @@ void main() {
 
     final job = await clientScheduler.schedule(
       target,
-      dvmKey.publicKey,
+      [dvmKey.publicKey],
+      pubkey: clientKey.publicKey,
       at: DateTime.now().add(const Duration(minutes: 1)),
       relays: [relay.url],
     );
 
     await _waitFor(() async => (await dvmStore.listJobs()).length == 1);
-    final requestEvent = relay.storedEvents.firstWhere(
+    final requestEvent = relay.receivedEvents.firstWhere(
       (event) => event.kind == SchedulerDvm.requestKind,
     );
     relay.sendEvent(event: requestEvent, subId: 'scheduler-dvm-5905');
@@ -375,7 +390,8 @@ void main() {
 
     final job = await clientScheduler.schedule(
       target,
-      dvmKey.publicKey,
+      [dvmKey.publicKey],
+      pubkey: clientKey.publicKey,
       at: DateTime.now().add(const Duration(seconds: 1)),
       relays: ['ws://127.0.0.1:59999'],
     );
@@ -432,7 +448,8 @@ void main() {
     );
     await clientScheduler.schedule(
       target,
-      dvmKey.publicKey,
+      [dvmKey.publicKey],
+      pubkey: clientKey.publicKey,
       at: DateTime.now().add(const Duration(seconds: 2)),
       relays: [relay.url],
     );
@@ -464,7 +481,7 @@ void main() {
     await dvm.start();
 
     await _waitFor(
-      () => relay.storedEvents.any((event) => event.id == target.id),
+      () => relay.receivedEvents.any((event) => event.id == target.id),
     );
   });
 
@@ -511,21 +528,23 @@ SchedulerDvm _createDvm({
   );
 }
 
-Future<void> _injectNip65(Ndk ndk, MockRelay relay, KeyPair keyPair) async {
-  final nip65 = Nip65(
+Nip65 _nip65For(KeyPair keyPair, MockRelay relay) {
+  return Nip65(
     pubKey: keyPair.publicKey,
     relays: {relay.url: ReadWriteMarker.readWrite},
     createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
   );
+}
+
+Future<void> _cacheNip65(Ndk ndk, Nip65 nip65) async {
   final signed = await ndk.accounts.getLoggedAccount()!.signer.sign(
     nip65.toEvent(),
   );
-  relay.storedEvents.add(signed);
   await ndk.config.cache.saveEvent(signed);
   await ndk.config.cache.saveUserRelayList(UserRelayList.fromNip65(nip65));
 }
 
-Future<void> _injectMetadata(Ndk ndk, MockRelay relay, KeyPair keyPair) async {
+Future<Nip01Event> _signedMetadata(Ndk ndk, KeyPair keyPair) {
   final metadata = Metadata(
     pubKey: keyPair.publicKey,
     name: 'Metadata Scheduler DVM',
@@ -533,12 +552,7 @@ Future<void> _injectMetadata(Ndk ndk, MockRelay relay, KeyPair keyPair) async {
     about: 'Metadata powered scheduler.',
     updatedAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
   );
-  final signed = await ndk.accounts.getLoggedAccount()!.signer.sign(
-    metadata.toEvent(),
-  );
-  relay.storedEvents.add(signed);
-  await ndk.config.cache.saveEvent(signed);
-  await ndk.config.cache.saveMetadata(Metadata.fromEvent(signed));
+  return ndk.accounts.getLoggedAccount()!.signer.sign(metadata.toEvent());
 }
 
 Future<Nip01Event> _signedTextEvent(
@@ -590,7 +604,7 @@ Future<void> _broadcast(Ndk ndk, Nip01Event event, String relayUrl) async {
 }
 
 List<Nip01Event> _feedbackEvents(MockRelay relay, String jobId) {
-  return relay.storedEvents
+  return relay.receivedEvents
       .where(
         (event) =>
             event.kind == FeedbackPublisher.feedbackKind &&
