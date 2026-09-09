@@ -1,6 +1,6 @@
 name: nostr_scheduler_dvm
 description: Portable Scheduler DVM core for publishing signed Nostr events at a future time.
-version: 0.2.1
+version: 0.2.2
 repository: https://github.com/nogringo/nostr-scheduler-dvm
 topics:
   - nostr
@@ -12,7 +12,7 @@ environment:
   sdk: ^3.12.1
 
 dependencies:
-  ndk: ^0.9.0
+  ndk: '>=0.9.0 <0.11.0'
   sembast: ^3.8.7
 
 dev_dependencies:
