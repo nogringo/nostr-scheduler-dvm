@@ -59,8 +59,9 @@ await dvm.start();
 owns the NDK lifecycle, signer lifecycle, database lifecycle, and sync engine
 lifecycle: start the engine, and dispose it after the DVM.
 
-A request scheduled further ahead than `maxScheduleAhead` (10 years by default)
-is rejected with an `error` feedback.
+A request scheduled further ahead than `maxScheduleAhead` (10 years by default),
+or asking for more than `maxRelaysPerJob` target relays (20 by default), is
+rejected with an `error` feedback.
 
 Live subscriptions deliver requests as they are published. The sync engine
 keeps them, and the cancellations, synced into the NDK cache, so whatever was

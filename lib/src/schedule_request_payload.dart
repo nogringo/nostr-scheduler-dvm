@@ -31,6 +31,7 @@ class ScheduleRequestPayload {
     String payload, {
     required EventVerifier eventVerifier,
     int? maxScheduleAt,
+    int? maxRelays,
   }) async {
     final Map<String, Object?> json;
     try {
@@ -70,6 +71,12 @@ class ScheduleRequestPayload {
     if (relaysJson is! List || relaysJson.isEmpty) {
       throw PayloadValidationException(
         'relays must be a non-empty array',
+        jobId: jobId,
+      );
+    }
+    if (maxRelays != null && relaysJson.length > maxRelays) {
+      throw PayloadValidationException(
+        'relays must contain at most $maxRelays entries',
         jobId: jobId,
       );
     }

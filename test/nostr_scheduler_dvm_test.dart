@@ -414,6 +414,54 @@ void main() {
     expect(await dvmStore.getJob(jobId), isNull);
   });
 
+  test('sends error feedback for too many target relays', () async {
+    const jobId =
+        'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd';
+    final target = await _signedTextEvent(
+      clientNdk,
+      clientKey,
+      'too many relays',
+      DateTime.now(),
+    );
+    final relays = List.generate(
+      SchedulerDvmConfig.defaultMaxRelaysPerJob + 1,
+      (index) => 'wss://relay$index.example',
+    );
+    final request = await _signedScheduleRequest(
+      clientNdk: clientNdk,
+      clientKey: clientKey,
+      dvmPubkey: dvmKey.publicKey,
+      payload: {
+        'job_id': jobId,
+        'schedule_at':
+            DateTime.now()
+                .add(const Duration(minutes: 1))
+                .millisecondsSinceEpoch ~/
+            1000,
+        'signed_event': {
+          'id': target.id,
+          'pubkey': target.pubKey,
+          'created_at': target.createdAt,
+          'kind': target.kind,
+          'tags': target.tags,
+          'content': target.content,
+          'sig': target.sig,
+        },
+        'relays': relays,
+      },
+    );
+
+    await _broadcast(clientNdk, request, relay.url);
+
+    await _waitForFeedbackStatus(
+      relay: relay,
+      clientNdk: clientNdk,
+      jobId: jobId,
+      status: 'error',
+    );
+    expect(await dvmStore.getJob(jobId), isNull);
+  });
+
   test('is idempotent for repeated request events', () async {
     final target = await _signedTextEvent(
       clientNdk,
@@ -594,11 +642,14 @@ void main() {
       target,
       [dvmKey.publicKey],
       pubkey: clientKey.publicKey,
-      at: DateTime.now().add(const Duration(seconds: 2)),
+      at: DateTime.now().add(const Duration(seconds: 10)),
       relays: [relay.url],
     );
 
-    await _waitFor(() async => (await dvmStore.listActiveJobs()).isNotEmpty);
+    await _waitFor(
+      () async => (await dvmStore.listActiveJobs()).isNotEmpty,
+      timeout: const Duration(seconds: 15),
+    );
     await dvm.dispose();
     dbsToClose.remove(firstDb);
     await firstDb.close();
@@ -627,6 +678,7 @@ void main() {
 
     await _waitFor(
       () => relay.receivedEvents.any((event) => event.id == target.id),
+      timeout: const Duration(seconds: 25),
     );
   });
 

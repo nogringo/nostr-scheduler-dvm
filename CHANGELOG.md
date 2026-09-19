@@ -6,6 +6,8 @@
   itself in a loop that survived restarts.
 - Chain the wait for a distant job into timers of at most a day, so a job
   already stored with such a `schedule_at` no longer loops either.
+- Reject a request asking for more than `SchedulerDvmConfig.maxRelaysPerJob`
+  target relays (20 by default) with an `error` feedback.
 
 ## 0.3.0
 
