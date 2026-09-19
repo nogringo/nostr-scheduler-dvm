@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:ndk/ndk.dart';
 
+import 'relay_url_policy.dart';
+
 class PayloadValidationException implements Exception {
   final String message;
   final String? jobId;
@@ -32,6 +34,7 @@ class ScheduleRequestPayload {
     required EventVerifier eventVerifier,
     int? maxScheduleAt,
     int? maxRelays,
+    RelayUrlPolicy relayPolicy = RelayUrlPolicy.permissive,
   }) async {
     final Map<String, Object?> json;
     try {
@@ -88,7 +91,12 @@ class ScheduleRequestPayload {
           jobId: jobId,
         );
       }
-      relays.add(relay.trim());
+      final trimmed = relay.trim();
+      final rejection = relayPolicy.rejectionReason(trimmed);
+      if (rejection != null) {
+        throw PayloadValidationException(rejection, jobId: jobId);
+      }
+      relays.add(trimmed);
     }
 
     final signedEventJson = json['signed_event'];

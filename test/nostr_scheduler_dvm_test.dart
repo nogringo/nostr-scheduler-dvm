@@ -723,6 +723,7 @@ SchedulerDvm _createDvm({
       syncEngine: syncEngine,
       bootstrapRelays: [bootstrapRelayUrl],
       announceNip89: false,
+      targetRelayPolicy: RelayUrlPolicy.permissive,
     ),
   );
 }

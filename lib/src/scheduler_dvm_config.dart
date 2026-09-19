@@ -2,6 +2,7 @@ import 'package:ndk/ndk.dart';
 import 'package:sync_engine_shim_for_ndk/sync_engine_shim_for_ndk.dart';
 
 import 'dvm_job_store.dart';
+import 'relay_url_policy.dart';
 
 typedef DvmClock = DateTime Function();
 
@@ -78,6 +79,9 @@ class SchedulerDvmConfig {
 
   /// Requests asking for more target relays than this are rejected.
   final int maxRelaysPerJob;
+
+  /// Which target relay URLs a request may ask the DVM to publish to.
+  final RelayUrlPolicy targetRelayPolicy;
   final DvmClock clock;
   EventSigner? _resolvedSigner;
 
@@ -96,6 +100,7 @@ class SchedulerDvmConfig {
     this.announceNip89 = true,
     this.maxScheduleAhead = defaultMaxScheduleAhead,
     this.maxRelaysPerJob = defaultMaxRelaysPerJob,
+    this.targetRelayPolicy = RelayUrlPolicy.public,
     DvmClock? clock,
   }) : bootstrapRelays = _resolveBootstrapRelays(ndk, bootstrapRelays),
        _configuredSigner = signer,

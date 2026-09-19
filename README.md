@@ -63,6 +63,19 @@ A request scheduled further ahead than `maxScheduleAhead` (10 years by default),
 or asking for more than `maxRelaysPerJob` target relays (20 by default), is
 rejected with an `error` feedback.
 
+Target relays go through `targetRelayPolicy`, which accepts public `wss://`
+relays only, so a request cannot point the DVM at `ws://localhost` or at a
+private address of the network it runs on. The check is lexical: a hostname
+that resolves to a private address still passes. For a DVM serving its own
+machine, or for tests, pass `RelayUrlPolicy.permissive`:
+
+```dart
+SchedulerDvmConfig(
+  ...
+  targetRelayPolicy: RelayUrlPolicy.permissive,
+);
+```
+
 Live subscriptions deliver requests as they are published. The sync engine
 keeps them, and the cancellations, synced into the NDK cache, so whatever was
 published while the DVM was stopped or disconnected is processed on the next

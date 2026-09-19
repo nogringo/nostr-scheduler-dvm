@@ -8,6 +8,12 @@
   already stored with such a `schedule_at` no longer loops either.
 - Reject a request asking for more than `SchedulerDvmConfig.maxRelaysPerJob`
   target relays (20 by default) with an `error` feedback.
+- **Behavior change:** target relays now go through
+  `SchedulerDvmConfig.targetRelayPolicy`, which accepts public `wss://` relays
+  only. A request could previously point the DVM at `ws://localhost` or at a
+  private address, and have it connect from inside its own network. Pass
+  `RelayUrlPolicy.permissive` to keep the previous behavior, or a
+  `RelayUrlPolicy` of your own.
 
 ## 0.3.0
 

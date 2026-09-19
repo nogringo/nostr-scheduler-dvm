@@ -231,6 +231,7 @@ class SchedulerDvm {
         eventVerifier: config.ndk.config.eventVerifier,
         maxScheduleAt: _nowSeconds() + config.maxScheduleAhead.inSeconds,
         maxRelays: config.maxRelaysPerJob,
+        relayPolicy: config.targetRelayPolicy,
       );
     } on PayloadValidationException catch (error) {
       if (error.jobId != null) {
