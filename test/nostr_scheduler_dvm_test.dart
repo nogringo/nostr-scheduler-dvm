@@ -139,7 +139,7 @@ void main() {
       dbsToClose.add(db);
       final config = SchedulerDvmConfig(
         ndk: dvmNdk,
-        database: db,
+        store: SembastDvmJobStore(db),
         announceNip89: false,
       );
 
@@ -521,7 +521,7 @@ SchedulerDvm _createDvm({
     SchedulerDvmConfig(
       ndk: ndk,
       signer: signer,
-      database: database,
+      store: SembastDvmJobStore(database),
       bootstrapRelays: [bootstrapRelayUrl],
       announceNip89: false,
     ),

@@ -12,7 +12,8 @@ private encrypted `kind:7000` feedback.
 - NIP-44 request decryption and feedback encryption.
 - NIP-65 relay resolution for the DVM pubkey.
 - Optional NIP-89 discovery announcement.
-- Sembast-backed persistence with the database supplied by the caller.
+- Pluggable job persistence through `DvmJobStore`, with a Sembast
+  implementation included.
 - Portable library code: no `dart:io` imports in `lib/`.
 
 ## Usage
@@ -23,7 +24,7 @@ Use a dedicated NDK instance logged in as the DVM:
 final dvm = SchedulerDvm(
   SchedulerDvmConfig(
     ndk: dvmNdk,
-    database: database,
+    store: SembastDvmJobStore(database),
     bootstrapRelays: ['wss://relay.damus.io'],
   ),
 );
@@ -39,7 +40,7 @@ final dvm = SchedulerDvm(
   SchedulerDvmConfig(
     ndk: appNdk,
     signer: schedulerDvmSigner,
-    database: database,
+    store: SembastDvmJobStore(database),
     bootstrapRelays: ['wss://relay.damus.io'],
   ),
 );
@@ -47,10 +48,12 @@ final dvm = SchedulerDvm(
 await dvm.start();
 ```
 
-`SchedulerDvmConfig` builds its internal job store from the supplied Sembast
-database and uses `ndk.config.eventVerifier` to validate the scheduled signed
-event. The caller owns the NDK lifecycle, signer lifecycle, and database
-lifecycle.
+`SchedulerDvmConfig` persists jobs through the supplied `DvmJobStore` and uses
+`ndk.config.eventVerifier` to validate the scheduled signed event. The caller
+owns the NDK lifecycle, signer lifecycle, and database lifecycle.
+
+To use another database (SQLite, Drift, etc.), implement `DvmJobStore` and pass
+it as `store`. `DvmJob.toJson()` and `DvmJob.fromJson()` handle serialization.
 
 ## Protocol
 

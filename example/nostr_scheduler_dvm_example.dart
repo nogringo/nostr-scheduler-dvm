@@ -10,7 +10,7 @@ Future<SchedulerDvm> startDedicatedDvm({
   final dvm = SchedulerDvm(
     SchedulerDvmConfig(
       ndk: dvmNdk,
-      database: database,
+      store: SembastDvmJobStore(database),
       bootstrapRelays: bootstrapRelays,
     ),
   );
@@ -29,7 +29,7 @@ Future<SchedulerDvm> startEmbeddedDvm({
     SchedulerDvmConfig(
       ndk: appNdk,
       signer: signer,
-      database: database,
+      store: SembastDvmJobStore(database),
       bootstrapRelays: bootstrapRelays,
     ),
   );

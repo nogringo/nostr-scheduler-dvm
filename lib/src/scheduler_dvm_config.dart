@@ -1,5 +1,4 @@
 import 'package:ndk/ndk.dart';
-import 'package:sembast/sembast.dart' as sembast;
 
 import 'dvm_job_store.dart';
 
@@ -70,7 +69,7 @@ class SchedulerDvmConfig {
   SchedulerDvmConfig({
     required this.ndk,
     EventSigner? signer,
-    required sembast.Database database,
+    required this.store,
 
     /// Relay URLs used to discover the DVM's NIP-65 relay list.
     ///
@@ -82,7 +81,6 @@ class SchedulerDvmConfig {
     DvmClock? clock,
   }) : bootstrapRelays = _resolveBootstrapRelays(ndk, bootstrapRelays),
        _configuredSigner = signer,
-       store = SembastDvmJobStore(database),
        clock = clock ?? DateTime.now;
 
   EventSigner get signer {
