@@ -1,3 +1,12 @@
+## 0.3.1
+
+- Reject a `schedule_at` further ahead than `SchedulerDvmConfig.maxScheduleAhead`
+  (10 years by default) with an `error` feedback. A far enough `schedule_at`
+  overflowed `Duration` and fired its timer at once, so the job rescheduled
+  itself in a loop that survived restarts.
+- Chain the wait for a distant job into timers of at most a day, so a job
+  already stored with such a `schedule_at` no longer loops either.
+
 ## 0.3.0
 
 - **Breaking:** `SchedulerDvmConfig` takes a `DvmJobStore store` instead of a Sembast `database`. Pass `SembastDvmJobStore(database)` to keep the previous behavior, or your own `DvmJobStore` implementation to use another database.

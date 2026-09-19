@@ -48,6 +48,7 @@ class SchedulerDvmProfile {
 class SchedulerDvmConfig {
   static const String defaultName = 'Scheduler DVM';
   static const String defaultAbout = 'Schedule any signed Nostr event.';
+  static const Duration defaultMaxScheduleAhead = Duration(days: 10 * 365);
 
   final Ndk ndk;
   final EventSigner? _configuredSigner;
@@ -70,6 +71,9 @@ class SchedulerDvmConfig {
   final String? name;
   final String? about;
   final bool announceNip89;
+
+  /// Requests whose `schedule_at` is further ahead than this are rejected.
+  final Duration maxScheduleAhead;
   final DvmClock clock;
   EventSigner? _resolvedSigner;
 
@@ -86,6 +90,7 @@ class SchedulerDvmConfig {
     this.name,
     this.about,
     this.announceNip89 = true,
+    this.maxScheduleAhead = defaultMaxScheduleAhead,
     DvmClock? clock,
   }) : bootstrapRelays = _resolveBootstrapRelays(ndk, bootstrapRelays),
        _configuredSigner = signer,

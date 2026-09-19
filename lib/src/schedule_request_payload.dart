@@ -30,6 +30,7 @@ class ScheduleRequestPayload {
   static Future<ScheduleRequestPayload> parseAndValidate(
     String payload, {
     required EventVerifier eventVerifier,
+    int? maxScheduleAt,
   }) async {
     final Map<String, Object?> json;
     try {
@@ -55,6 +56,12 @@ class ScheduleRequestPayload {
     if (scheduleAt is! int) {
       throw PayloadValidationException(
         'schedule_at must be an integer unix timestamp',
+        jobId: jobId,
+      );
+    }
+    if (maxScheduleAt != null && scheduleAt > maxScheduleAt) {
+      throw PayloadValidationException(
+        'schedule_at must not be after $maxScheduleAt',
         jobId: jobId,
       );
     }

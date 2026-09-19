@@ -374,6 +374,46 @@ void main() {
     expect(await dvmStore.getJob(jobId), isNull);
   });
 
+  test('sends error feedback for a schedule_at beyond the horizon', () async {
+    const jobId =
+        'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
+    final target = await _signedTextEvent(
+      clientNdk,
+      clientKey,
+      'too far',
+      DateTime.now(),
+    );
+    final request = await _signedScheduleRequest(
+      clientNdk: clientNdk,
+      clientKey: clientKey,
+      dvmPubkey: dvmKey.publicKey,
+      payload: {
+        'job_id': jobId,
+        'schedule_at': 10000000000000,
+        'signed_event': {
+          'id': target.id,
+          'pubkey': target.pubKey,
+          'created_at': target.createdAt,
+          'kind': target.kind,
+          'tags': target.tags,
+          'content': target.content,
+          'sig': target.sig,
+        },
+        'relays': [relay.url],
+      },
+    );
+
+    await _broadcast(clientNdk, request, relay.url);
+
+    await _waitForFeedbackStatus(
+      relay: relay,
+      clientNdk: clientNdk,
+      jobId: jobId,
+      status: 'error',
+    );
+    expect(await dvmStore.getJob(jobId), isNull);
+  });
+
   test('is idempotent for repeated request events', () async {
     final target = await _signedTextEvent(
       clientNdk,

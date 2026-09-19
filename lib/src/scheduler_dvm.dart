@@ -229,6 +229,7 @@ class SchedulerDvm {
       payload = await ScheduleRequestPayload.parseAndValidate(
         decrypted,
         eventVerifier: config.ndk.config.eventVerifier,
+        maxScheduleAt: _nowSeconds() + config.maxScheduleAhead.inSeconds,
       );
     } on PayloadValidationException catch (error) {
       if (error.jobId != null) {

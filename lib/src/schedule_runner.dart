@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_initializing_formals
 
 import 'dart:async';
+import 'dart:math';
 
 import 'dvm_job.dart';
 import 'scheduler_dvm_config.dart';
@@ -8,6 +9,9 @@ import 'scheduler_dvm_config.dart';
 typedef DueJobHandler = Future<void> Function(String jobId);
 
 class ScheduleRunner {
+  /// Longer waits are chained, since a far `schedule_at` overflows `Duration`.
+  static const int maxTimerDelaySeconds = 24 * 60 * 60;
+
   final DvmClock _clock;
   final DueJobHandler _onDue;
   final Map<String, Timer> _timers = {};
@@ -27,7 +31,8 @@ class ScheduleRunner {
       return;
     }
 
-    _timers[job.jobId] = Timer(Duration(seconds: delaySeconds), () {
+    final timerSeconds = min(delaySeconds, maxTimerDelaySeconds);
+    _timers[job.jobId] = Timer(Duration(seconds: timerSeconds), () {
       _timers.remove(job.jobId);
       unawaited(_run(job.jobId));
     });
