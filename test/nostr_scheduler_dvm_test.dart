@@ -17,6 +17,7 @@ import 'package:nostr_event_scheduler/nostr_event_scheduler.dart';
 import 'package:sembast/sembast.dart' as sembast;
 import 'package:sembast/sembast_io.dart' as sembast_io;
 import 'package:sembast/sembast_memory.dart' as sembast_memory;
+import 'package:sync_engine_shim_for_ndk/sync_engine_shim_for_ndk.dart';
 import 'package:test/test.dart';
 
 import 'support/mock_relay.dart';
@@ -35,6 +36,18 @@ void main() {
   final dvmsToDispose = <SchedulerDvm>[];
   final ndksToDestroy = <Ndk>[];
   final broadcastsToDispose = <OfflineBroadcast>[];
+  final enginesToDispose = <SyncEngine>[];
+  var syncDbCount = 0;
+
+  Future<SyncEngine> startSyncEngine(Ndk ndk) async {
+    final db = await sembast_memory.databaseFactoryMemory.openDatabase(
+      'sync-${syncDbCount++}-${relay.url}.db',
+    );
+    dbsToClose.add(db);
+    final engine = SyncEngine(ndk, db: db)..start();
+    enginesToDispose.add(engine);
+    return engine;
+  }
 
   setUp(() async {
     relay = MockRelay(name: 'scheduler relay');
@@ -85,6 +98,7 @@ void main() {
     clientScheduler = EventScheduler(
       ndk: clientNdk,
       broadcast: clientBroadcast,
+      syncEngine: await startSyncEngine(clientNdk),
       db: schedulerDb,
     );
     await clientScheduler.startListening(pubkey: clientKey.publicKey);
@@ -95,6 +109,7 @@ void main() {
     dbsToClose.add(dvmDb);
     dvm = _createDvm(
       ndk: dvmNdk,
+      syncEngine: await startSyncEngine(dvmNdk),
       database: dvmDb,
       bootstrapRelayUrl: relay.url,
     );
@@ -109,6 +124,10 @@ void main() {
       await dvm.dispose();
     }
     dvmsToDispose.clear();
+    for (final engine in enginesToDispose.reversed) {
+      await engine.dispose();
+    }
+    enginesToDispose.clear();
     for (final broadcast in broadcastsToDispose.reversed) {
       await broadcast.dispose();
     }
@@ -140,6 +159,7 @@ void main() {
       final config = SchedulerDvmConfig(
         ndk: dvmNdk,
         store: SembastDvmJobStore(db),
+        syncEngine: await startSyncEngine(dvmNdk),
         announceNip89: false,
       );
 
@@ -172,6 +192,7 @@ void main() {
     dbsToClose.add(sharedDb);
     final sharedDvm = _createDvm(
       ndk: sharedNdk,
+      syncEngine: await startSyncEngine(sharedNdk),
       signer: dvmSigner,
       database: sharedDb,
       bootstrapRelayUrl: relay.url,
@@ -380,6 +401,88 @@ void main() {
     expect(jobs.where((stored) => stored.jobId == job.jobId), hasLength(1));
   });
 
+  test('schedules requests synced into the NDK cache', () async {
+    final request = await _validScheduleRequest(
+      clientNdk: clientNdk,
+      clientKey: clientKey,
+      dvmPubkey: dvmKey.publicKey,
+      relayUrl: relay.url,
+      jobId: 'b' * 64,
+    );
+    await dvmNdk.config.cache.saveEvent(request);
+
+    await dvm.resync();
+
+    final stored = await dvmStore.getJob('b' * 64);
+    expect(stored?.status, DvmJobStatus.scheduled);
+    expect(stored?.requestEventId, request.id);
+  });
+
+  test('cancels a request whose deletion was synced with it', () async {
+    final request = await _validScheduleRequest(
+      clientNdk: clientNdk,
+      clientKey: clientKey,
+      dvmPubkey: dvmKey.publicKey,
+      relayUrl: relay.url,
+      jobId: 'c' * 64,
+    );
+    final deletion = await clientNdk.accounts.getLoggedAccount()!.signer.sign(
+      Nip01Event(
+        pubKey: clientKey.publicKey,
+        kind: SchedulerDvm.deleteKind,
+        tags: [
+          ['e', request.id],
+          ['k', '${SchedulerDvm.requestKind}'],
+          ['p', dvmKey.publicKey],
+        ],
+        content: 'cancel',
+        createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      ),
+    );
+    await dvmNdk.config.cache.saveEvent(request);
+    await dvmNdk.config.cache.saveEvent(deletion);
+
+    await dvm.resync();
+
+    final stored = await dvmStore.getJob('c' * 64);
+    expect(stored?.status, DvmJobStatus.cancelled);
+    await _waitForFeedbackStatus(
+      relay: relay,
+      clientNdk: clientNdk,
+      jobId: 'c' * 64,
+      status: 'cancelled',
+    );
+  });
+
+  test('ignores a deletion that does not tag the DVM', () async {
+    final request = await _validScheduleRequest(
+      clientNdk: clientNdk,
+      clientKey: clientKey,
+      dvmPubkey: dvmKey.publicKey,
+      relayUrl: relay.url,
+      jobId: 'e' * 64,
+    );
+    final deletion = await clientNdk.accounts.getLoggedAccount()!.signer.sign(
+      Nip01Event(
+        pubKey: clientKey.publicKey,
+        kind: SchedulerDvm.deleteKind,
+        tags: [
+          ['e', request.id],
+          ['k', '${SchedulerDvm.requestKind}'],
+        ],
+        content: 'cancel',
+        createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      ),
+    );
+    await dvmNdk.config.cache.saveEvent(request);
+    await dvmNdk.config.cache.saveEvent(deletion);
+
+    await dvm.resync();
+
+    final stored = await dvmStore.getJob('e' * 64);
+    expect(stored?.status, DvmJobStatus.scheduled);
+  });
+
   test('marks a job failed when every target relay fails', () async {
     final target = await _signedTextEvent(
       clientNdk,
@@ -434,6 +537,7 @@ void main() {
     dbsToClose.add(firstDb);
     dvm = _createDvm(
       ndk: dvmNdk,
+      syncEngine: await startSyncEngine(dvmNdk),
       database: firstDb,
       bootstrapRelayUrl: relay.url,
     );
@@ -473,6 +577,7 @@ void main() {
     dbsToClose.add(secondDb);
     dvm = _createDvm(
       ndk: dvmNdk,
+      syncEngine: await startSyncEngine(dvmNdk),
       database: secondDb,
       bootstrapRelayUrl: relay.url,
     );
@@ -513,6 +618,7 @@ Ndk _createNdk(String relayUrl) {
 
 SchedulerDvm _createDvm({
   required Ndk ndk,
+  required SyncEngine syncEngine,
   EventSigner? signer,
   required sembast.Database database,
   required String bootstrapRelayUrl,
@@ -522,6 +628,7 @@ SchedulerDvm _createDvm({
       ndk: ndk,
       signer: signer,
       store: SembastDvmJobStore(database),
+      syncEngine: syncEngine,
       bootstrapRelays: [bootstrapRelayUrl],
       announceNip89: false,
     ),
@@ -592,6 +699,41 @@ Future<Nip01Event> _signedScheduleRequest({
     createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
   );
   return clientNdk.accounts.getLoggedAccount()!.signer.sign(event);
+}
+
+Future<Nip01Event> _validScheduleRequest({
+  required Ndk clientNdk,
+  required KeyPair clientKey,
+  required String dvmPubkey,
+  required String relayUrl,
+  required String jobId,
+}) async {
+  final scheduleAt = DateTime.now().add(const Duration(minutes: 1));
+  final target = await _signedTextEvent(
+    clientNdk,
+    clientKey,
+    'synced $jobId',
+    scheduleAt,
+  );
+  return _signedScheduleRequest(
+    clientNdk: clientNdk,
+    clientKey: clientKey,
+    dvmPubkey: dvmPubkey,
+    payload: {
+      'job_id': jobId,
+      'schedule_at': scheduleAt.millisecondsSinceEpoch ~/ 1000,
+      'signed_event': {
+        'id': target.id,
+        'pubkey': target.pubKey,
+        'created_at': target.createdAt,
+        'kind': target.kind,
+        'tags': target.tags,
+        'content': target.content,
+        'sig': target.sig,
+      },
+      'relays': [relayUrl],
+    },
+  );
 }
 
 Future<void> _broadcast(Ndk ndk, Nip01Event event, String relayUrl) async {

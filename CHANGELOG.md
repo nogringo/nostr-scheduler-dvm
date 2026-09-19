@@ -1,6 +1,11 @@
 ## 0.3.0
 
 - **Breaking:** `SchedulerDvmConfig` takes a `DvmJobStore store` instead of a Sembast `database`. Pass `SembastDvmJobStore(database)` to keep the previous behavior, or your own `DvmJobStore` implementation to use another database.
+- **Breaking:** `SchedulerDvmConfig` requires a caller-owned `SyncEngine` from `sync_engine_shim_for_ndk`. Schedule requests and `["k", "5905"]` cancellations are synced into the NDK cache and processed from there, so events published while the DVM was offline or disconnected are no longer missed.
+- **Breaking:** require `ndk: ^0.10.0-dev.3`.
+- **Breaking:** cancellations must carry `["k", "5905"]` and `["p", "<dvm_pubkey>"]`, as the Scheduler DVM spec requires. The DVM only syncs the `kind:5` addressed to it instead of every `kind:5` of its relays.
+- `resync()` refreshes the sync engine instead of re-querying the whole history.
+- A deletion of an already cancelled job no longer sends an error feedback.
 
 ## 0.2.2
 

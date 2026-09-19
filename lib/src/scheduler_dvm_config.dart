@@ -1,4 +1,5 @@
 import 'package:ndk/ndk.dart';
+import 'package:sync_engine_shim_for_ndk/sync_engine_shim_for_ndk.dart';
 
 import 'dvm_job_store.dart';
 
@@ -52,6 +53,12 @@ class SchedulerDvmConfig {
   final EventSigner? _configuredSigner;
   final DvmJobStore store;
 
+  /// Keeps schedule requests and cancellations synced into the NDK cache, so
+  /// events published while the DVM was offline are not missed. It must run on
+  /// [ndk], whose cache should be persistent. Caller-owned: start it, and
+  /// dispose it after the DVM.
+  final SyncEngine syncEngine;
+
   /// Relay URLs used as the discovery fallback for the Scheduler DVM.
   ///
   /// On startup the DVM first tries to resolve its own NIP-65 relay list from
@@ -70,6 +77,7 @@ class SchedulerDvmConfig {
     required this.ndk,
     EventSigner? signer,
     required this.store,
+    required this.syncEngine,
 
     /// Relay URLs used to discover the DVM's NIP-65 relay list.
     ///

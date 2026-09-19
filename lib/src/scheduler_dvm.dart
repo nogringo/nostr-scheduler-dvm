@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:ndk/ndk.dart';
+import 'package:sync_engine_shim_for_ndk/sync_engine_shim_for_ndk.dart';
 
 import 'dvm_job.dart';
 import 'dvm_job_status.dart';
@@ -22,6 +23,10 @@ class SchedulerDvm {
   final List<NdkResponse> _responses = [];
   final List<StreamSubscription<Nip01Event>> _subscriptions = [];
   final Map<String, Nip01Event> _pendingDeletions = {};
+  final Set<String> _ingestedEventIds = {};
+
+  SyncHandle? _syncHandle;
+  StreamSubscription<SyncRequestStatus>? _syncStatus;
 
   bool _started = false;
 
@@ -68,6 +73,7 @@ class SchedulerDvm {
   Future<SchedulerDvmRelays> refreshRelays() async {
     _relays = await config.resolveRelays(forceRefresh: true);
     _feedbackPublisher.updateRelays(_relays);
+    if (_started) await _watchSync();
     return _relays;
   }
 
@@ -78,16 +84,21 @@ class SchedulerDvm {
   }
 
   Future<void> resync() async {
-    await _query(
-      Filter(kinds: [requestKind], pTags: [config.dvmPubkey]),
-      _handleScheduleRequest,
-    );
-    await _query(Filter(kinds: [deleteKind]), _handleDeletion);
+    final handle = _syncHandle;
+    if (handle == null) return;
+    await config.syncEngine.refresh(handle);
+    await _ingestSynced();
   }
 
   Future<void> stop() async {
     if (!_started) return;
     _started = false;
+
+    await _syncStatus?.cancel();
+    _syncStatus = null;
+    final handle = _syncHandle;
+    if (handle != null) config.syncEngine.release(handle);
+    _syncHandle = null;
 
     for (final subscription in _subscriptions) {
       await subscription.cancel();
@@ -107,9 +118,80 @@ class SchedulerDvm {
     await config.store.close();
   }
 
+  Filter get _scheduleRequestFilter =>
+      Filter(kinds: [requestKind], pTags: [config.dvmPubkey]);
+
+  Filter get _deletionFilter => Filter(
+    kinds: [deleteKind],
+    tags: {
+      '#k': ['$requestKind'],
+      '#p': [config.dvmPubkey],
+    },
+  );
+
+  Future<void> _watchSync() async {
+    final previous = _syncHandle;
+    await _syncStatus?.cancel();
+
+    final handle = config.syncEngine.ensure(
+      SyncRequest(
+        filters: [_scheduleRequestFilter, _deletionFilter],
+        relays: _relays.requestRelays,
+      ),
+    );
+    _syncHandle = handle;
+    _syncStatus = config.syncEngine
+        .watchStatus(handle)
+        .where((status) => status.phase == SyncRequestPhase.synced)
+        .listen((_) => unawaited(_ingestSynced()));
+
+    if (previous != null) config.syncEngine.release(previous);
+  }
+
+  Future<void> _ingestSynced() async {
+    final cache = config.ndk.config.cache;
+    final requestTags = {
+      '#p': [config.dvmPubkey],
+    };
+
+    final requests = await cache.loadEvents(
+      kinds: [requestKind],
+      tags: requestTags,
+    );
+    // NDK hides a request once its deletion is cached, yet a request cancelled
+    // before we saw it still owes its client a cancelled feedback.
+    final deletedRequests = await cache.loadHiddenEvents(
+      kinds: [requestKind],
+      tags: requestTags,
+      reasons: {HiddenEventReason.deleted},
+    );
+    for (final event in [
+      ...requests,
+      ...deletedRequests.map((hidden) => hidden.event),
+    ]) {
+      await _ingest(event, _handleScheduleRequest);
+    }
+
+    final deletions = await cache.loadEvents(
+      kinds: [deleteKind],
+      tags: _deletionFilter.tags,
+    );
+    for (final event in deletions) {
+      await _ingest(event, _handleDeletion);
+    }
+  }
+
+  Future<void> _ingest(
+    Nip01Event event,
+    Future<void> Function(Nip01Event event) handler,
+  ) async {
+    if (!_started || !_ingestedEventIds.add(event.id)) return;
+    await handler(event);
+  }
+
   void _startSubscriptions() {
     final scheduleResponse = config.ndk.requests.subscription(
-      filter: Filter(kinds: [requestKind], pTags: [config.dvmPubkey]),
+      filter: _scheduleRequestFilter,
       explicitRelays: _relays.requestRelays,
       cacheRead: false,
       cacheWrite: false,
@@ -117,12 +199,12 @@ class SchedulerDvm {
     _responses.add(scheduleResponse);
     _subscriptions.add(
       scheduleResponse.stream.listen(
-        (event) => unawaited(_handleScheduleRequest(event)),
+        (event) => unawaited(_ingest(event, _handleScheduleRequest)),
       ),
     );
 
     final deletionResponse = config.ndk.requests.subscription(
-      filter: Filter(kinds: [deleteKind]),
+      filter: _deletionFilter,
       explicitRelays: _relays.requestRelays,
       cacheRead: false,
       cacheWrite: false,
@@ -130,24 +212,9 @@ class SchedulerDvm {
     _responses.add(deletionResponse);
     _subscriptions.add(
       deletionResponse.stream.listen(
-        (event) => unawaited(_handleDeletion(event)),
+        (event) => unawaited(_ingest(event, _handleDeletion)),
       ),
     );
-  }
-
-  Future<void> _query(
-    Filter filter,
-    Future<void> Function(Nip01Event event) handler,
-  ) async {
-    final response = config.ndk.requests.query(
-      filter: filter,
-      explicitRelays: _relays.requestRelays,
-      cacheRead: false,
-      cacheWrite: false,
-    );
-    await for (final event in response.stream) {
-      await handler(event);
-    }
   }
 
   Future<void> _handleScheduleRequest(Nip01Event event) async {
@@ -250,6 +317,7 @@ class SchedulerDvm {
         continue;
       }
       if (event.pubKey != job.clientPubkey) continue;
+      if (job.status == DvmJobStatus.cancelled) continue;
 
       if (job.isTerminal) {
         await _sendFeedback(

@@ -12,12 +12,13 @@ environment:
   sdk: ^3.12.1
 
 dependencies:
-  ndk: '>=0.9.0 <0.11.0'
+  ndk: ^0.10.0-dev.3
   sembast: ^3.8.7
+  sync_engine_shim_for_ndk: ^0.7.0
 
 dev_dependencies:
   bip340: ^0.3.1
-  broadcast_queue_shim_for_ndk: ^0.5.0
+  broadcast_queue_shim_for_ndk: ^0.6.0
   lints: ^6.1.0
-  nostr_event_scheduler: ^0.4.0
+  nostr_event_scheduler: ^0.5.2
   test: ^1.31.2
