@@ -921,6 +921,65 @@ void main() {
     );
   });
 
+  test('does not repeat an error feedback after a restart', () async {
+    const jobId =
+        'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
+    final request = await _signedScheduleRequest(
+      clientNdk: clientNdk,
+      clientKey: clientKey,
+      dvmPubkey: dvmKey.publicKey,
+      payload: {
+        'job_id': jobId,
+        'schedule_at':
+            DateTime.now()
+                .add(const Duration(minutes: 1))
+                .millisecondsSinceEpoch ~/
+            1000,
+        'relays': <String>[],
+      },
+    );
+
+    final sharedCache = dvmNdk.config.cache;
+    await sharedCache.saveEvent(request);
+    await dvm.resync();
+
+    await _waitForFeedbackStatus(
+      relay: relay,
+      clientNdk: clientNdk,
+      jobId: jobId,
+      status: 'error',
+    );
+    expect(_feedbackEvents(relay, jobId), hasLength(1));
+
+    await dvm.dispose();
+    dvmsToDispose.remove(dvm);
+
+    // The cache is what a restart keeps: same requests, same sidecars.
+    final restartedNdk = _createNdk(relay.url, cache: sharedCache);
+    ndksToDestroy.add(restartedNdk);
+    restartedNdk.accounts.loginPrivateKey(
+      pubkey: dvmKey.publicKey,
+      privkey: dvmKey.privateKey!,
+    );
+    final restartedDb = await sembast_memory.databaseFactoryMemory.openDatabase(
+      'dvm-restarted-${relay.url}.db',
+    );
+    dbsToClose.add(restartedDb);
+    dvm = _createDvm(
+      ndk: restartedNdk,
+      syncEngine: await startSyncEngine(restartedNdk),
+      database: restartedDb,
+      bootstrapRelayUrl: relay.url,
+    );
+    dvmStore = dvm.config.store;
+    dvmsToDispose.add(dvm);
+    await dvm.start();
+    await dvm.resync();
+
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    expect(_feedbackEvents(relay, jobId), hasLength(1));
+  });
+
   test('library sources do not import dart:io', () {
     final importsDartIo = Directory('lib')
         .listSync(recursive: true)
@@ -934,11 +993,11 @@ void main() {
   });
 }
 
-Ndk _createNdk(String relayUrl) {
+Ndk _createNdk(String relayUrl, {CacheManager? cache}) {
   return Ndk(
     NdkConfig(
       eventVerifier: Bip340EventVerifier(useIsolate: false),
-      cache: MemCacheManager(),
+      cache: cache ?? MemCacheManager(),
       bootstrapRelays: [relayUrl],
       fetchedRangesEnabled: true,
       defaultQueryTimeout: const Duration(seconds: 2),

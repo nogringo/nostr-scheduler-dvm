@@ -237,6 +237,7 @@ class SchedulerDvm {
   Future<void> _handleScheduleRequest(Nip01Event event) async {
     if (!_isScheduleRequestForThisDvm(event)) return;
     if (await config.store.getJobByRequestEventId(event.id) != null) return;
+    if (await _isDecided(event.id)) return;
 
     final decrypted = await _decryptRequest(event);
     if (decrypted == null) return;
@@ -259,10 +260,14 @@ class SchedulerDvm {
           message: error.message,
         );
       }
+      await _markDecided(event, decrypted);
       return;
     }
 
-    if (_isStale(payload.scheduleAt)) return;
+    if (_isStale(payload.scheduleAt)) {
+      await _markDecided(event, decrypted);
+      return;
+    }
 
     final existing = await config.store.getJobByClientJobId(
       clientPubkey: event.pubKey,
@@ -275,6 +280,7 @@ class SchedulerDvm {
         status: 'error',
         message: 'job_id already exists',
       );
+      await _markDecided(event, decrypted);
       return;
     }
 
@@ -318,6 +324,46 @@ class SchedulerDvm {
       message: 'Job accepted',
     );
     _runner.schedule(job);
+  }
+
+  /// A request the DVM turned down leaves no job behind, so the decrypted
+  /// payload sidecar is what carries that decision across a restart. Without
+  /// it the sweep decrypts, rejects and tells the client all over again.
+  Future<bool> _isDecided(String requestEventId) async {
+    try {
+      final record = await config.ndk.config.cache
+          .loadDecryptedEventPayloadRecord(
+            eventId: requestEventId,
+            viewerPubKey: config.dvmPubkey,
+          );
+      return record?.status == DecryptedPayloadStatus.ready;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Written once the client has been told, never before: a crash in between
+  /// leaves the request to be decided again rather than silently dropped.
+  Future<void> _markDecided(Nip01Event request, String plaintext) async {
+    final now = _nowSeconds();
+    try {
+      await config.ndk.config.cache.saveDecryptedEventPayloadRecord(
+        DecryptedEventPayloadRecord(
+          eventId: request.id,
+          viewerPubKey: config.dvmPubkey,
+          scheme: DecryptedPayloadScheme.nip44,
+          status: DecryptedPayloadStatus.ready,
+          plaintextContent: plaintext,
+          createdAt: now,
+          updatedAt: now,
+          decryptedAt: now,
+          sourceEventPubKey: request.pubKey,
+          sourceEventKind: request.kind,
+        ),
+      );
+    } catch (_) {
+      // A cache without the sidecar just decides again on the next restart.
+    }
   }
 
   Future<String?> _decryptRequest(Nip01Event event) async {

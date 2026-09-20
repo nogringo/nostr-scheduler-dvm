@@ -27,6 +27,15 @@
   private address, and have it connect from inside its own network. Pass
   `RelayUrlPolicy.permissive` to keep the previous behavior, or a
   `RelayUrlPolicy` of your own.
+- Decide a schedule request once instead of once per restart. A request the
+  DVM turns down leaves no job behind, so nothing remembered the decision: the
+  catch-up sweep decrypted it again on every start and sent its client the same
+  `error` feedback, both for a failed validation and for a `job_id` already
+  taken. The outcome now goes to the NDK decrypted payload sidecar, keyed by
+  the request event id and the DVM pubkey, and is written only once the client
+  has been told. A `CacheManager` without that sidecar keeps the previous
+  behavior. A request that fails to decrypt is still retried, since a signer
+  that is merely unreachable must not look like a permanent rejection.
 - Bound the cache sweep that catches up on missed requests. It reloaded every
   `kind:5905` and `kind:5` the DVM had ever cached, on every sync tick, which
   never stops growing on a persistent cache. The sweep now starts at
