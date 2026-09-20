@@ -49,6 +49,13 @@ void main() {
     return engine;
   }
 
+  Future<DvmJob?> storedJob(String jobId, {DvmJobStore? store}) {
+    return (store ?? dvmStore).getJobByClientJobId(
+      clientPubkey: clientKey.publicKey,
+      jobId: jobId,
+    );
+  }
+
   setUp(() async {
     relay = MockRelay(name: 'scheduler relay');
 
@@ -220,7 +227,7 @@ void main() {
     );
 
     await _waitFor(() async {
-      final stored = await sharedStore.getJob(job.jobId);
+      final stored = await storedJob(job.jobId, store: sharedStore);
       return stored?.status == DvmJobStatus.scheduled;
     });
   });
@@ -250,7 +257,7 @@ void main() {
       );
 
       await _waitFor(() async {
-        final stored = await dvmStore.getJob(job.jobId);
+        final stored = await storedJob(job.jobId);
         return stored?.status == DvmJobStatus.scheduled;
       });
 
@@ -291,7 +298,7 @@ void main() {
       () => relay.receivedEvents.any((event) => event.id == target.id),
     );
     await _waitFor(() async {
-      final stored = await dvmStore.getJob(job.jobId);
+      final stored = await storedJob(job.jobId);
       return stored?.status == DvmJobStatus.published;
     });
     await _waitForFeedbackStatus(
@@ -319,14 +326,14 @@ void main() {
     );
 
     await _waitFor(() async {
-      final stored = await dvmStore.getJob(job.jobId);
+      final stored = await storedJob(job.jobId);
       return stored?.status == DvmJobStatus.scheduled;
     });
 
     await clientScheduler.cancel(job.jobId, pubkey: clientKey.publicKey);
 
     await _waitFor(() async {
-      final stored = await dvmStore.getJob(job.jobId);
+      final stored = await storedJob(job.jobId);
       return stored?.status == DvmJobStatus.cancelled;
     });
     await _waitForFeedbackStatus(
@@ -371,7 +378,7 @@ void main() {
       jobId: jobId,
       status: 'error',
     );
-    expect(await dvmStore.getJob(jobId), isNull);
+    expect(await storedJob(jobId), isNull);
   });
 
   test('sends error feedback for a schedule_at beyond the horizon', () async {
@@ -411,7 +418,7 @@ void main() {
       jobId: jobId,
       status: 'error',
     );
-    expect(await dvmStore.getJob(jobId), isNull);
+    expect(await storedJob(jobId), isNull);
   });
 
   test('sends error feedback for too many target relays', () async {
@@ -459,7 +466,7 @@ void main() {
       jobId: jobId,
       status: 'error',
     );
-    expect(await dvmStore.getJob(jobId), isNull);
+    expect(await storedJob(jobId), isNull);
   });
 
   test('is idempotent for repeated request events', () async {
@@ -501,9 +508,85 @@ void main() {
 
     await dvm.resync();
 
-    final stored = await dvmStore.getJob('b' * 64);
+    final stored = await storedJob('b' * 64);
     expect(stored?.status, DvmJobStatus.scheduled);
     expect(stored?.requestEventId, request.id);
+  });
+
+  test('schedules the same job_id for two different clients', () async {
+    const jobId =
+        'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
+    final otherKey = Bip340.generatePrivateKey();
+    final otherNdk = _createNdk(relay.url);
+    ndksToDestroy.add(otherNdk);
+    otherNdk.accounts.loginPrivateKey(
+      pubkey: otherKey.publicKey,
+      privkey: otherKey.privateKey!,
+    );
+
+    final request = await _validScheduleRequest(
+      clientNdk: clientNdk,
+      clientKey: clientKey,
+      dvmPubkey: dvmKey.publicKey,
+      relayUrl: relay.url,
+      jobId: jobId,
+    );
+    final otherRequest = await _validScheduleRequest(
+      clientNdk: otherNdk,
+      clientKey: otherKey,
+      dvmPubkey: dvmKey.publicKey,
+      relayUrl: relay.url,
+      jobId: jobId,
+    );
+    await dvmNdk.config.cache.saveEvent(request);
+    await dvmNdk.config.cache.saveEvent(otherRequest);
+
+    await dvm.resync();
+
+    final stored = await storedJob(jobId);
+    expect(stored?.status, DvmJobStatus.scheduled);
+    expect(stored?.requestEventId, request.id);
+
+    final otherStored = await dvmStore.getJobByClientJobId(
+      clientPubkey: otherKey.publicKey,
+      jobId: jobId,
+    );
+    expect(otherStored?.status, DvmJobStatus.scheduled);
+    expect(otherStored?.requestEventId, otherRequest.id);
+  });
+
+  test('rejects a job_id the same client already used', () async {
+    const jobId =
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaab';
+    final request = await _validScheduleRequest(
+      clientNdk: clientNdk,
+      clientKey: clientKey,
+      dvmPubkey: dvmKey.publicKey,
+      relayUrl: relay.url,
+      jobId: jobId,
+    );
+    final reuse = await _validScheduleRequest(
+      clientNdk: clientNdk,
+      clientKey: clientKey,
+      dvmPubkey: dvmKey.publicKey,
+      relayUrl: relay.url,
+      jobId: jobId,
+    );
+    await dvmNdk.config.cache.saveEvent(request);
+
+    await dvm.resync();
+    expect((await storedJob(jobId))?.requestEventId, request.id);
+
+    await _broadcast(clientNdk, reuse, relay.url);
+
+    await _waitForFeedbackStatus(
+      relay: relay,
+      clientNdk: clientNdk,
+      jobId: jobId,
+      status: 'error',
+    );
+    expect((await storedJob(jobId))?.requestEventId, request.id);
+    expect(await dvmStore.getJobByRequestEventId(reuse.id), isNull);
   });
 
   test('cancels a request whose deletion was synced with it', () async {
@@ -532,7 +615,7 @@ void main() {
 
     await dvm.resync();
 
-    final stored = await dvmStore.getJob('c' * 64);
+    final stored = await storedJob('c' * 64);
     expect(stored?.status, DvmJobStatus.cancelled);
     await _waitForFeedbackStatus(
       relay: relay,
@@ -567,7 +650,7 @@ void main() {
 
     await dvm.resync();
 
-    final stored = await dvmStore.getJob('e' * 64);
+    final stored = await storedJob('e' * 64);
     expect(stored?.status, DvmJobStatus.scheduled);
   });
 
@@ -588,7 +671,7 @@ void main() {
     );
 
     await _waitFor(() async {
-      final stored = await dvmStore.getJob(job.jobId);
+      final stored = await storedJob(job.jobId);
       return stored?.status == DvmJobStatus.failed;
     }, timeout: const Duration(seconds: 25));
     await _waitForFeedbackStatus(

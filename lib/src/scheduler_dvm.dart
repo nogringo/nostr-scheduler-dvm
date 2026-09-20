@@ -245,16 +245,17 @@ class SchedulerDvm {
       return;
     }
 
-    final existing = await config.store.getJob(payload.jobId);
+    final existing = await config.store.getJobByClientJobId(
+      clientPubkey: event.pubKey,
+      jobId: payload.jobId,
+    );
     if (existing != null) {
-      if (existing.requestEventId != event.id) {
-        await _sendFeedback(
-          jobId: payload.jobId,
-          clientPubkey: event.pubKey,
-          status: 'error',
-          message: 'job_id already exists',
-        );
-      }
+      await _sendFeedback(
+        jobId: payload.jobId,
+        clientPubkey: event.pubKey,
+        status: 'error',
+        message: 'job_id already exists',
+      );
       return;
     }
 
@@ -339,7 +340,7 @@ class SchedulerDvm {
         cancelledAt: now,
         lastMessage: 'Job cancelled',
       );
-      _runner.cancel(job.jobId);
+      _runner.cancel(job.requestEventId);
       await config.store.putJob(cancelled);
       await _sendFeedback(
         jobId: job.jobId,
@@ -350,8 +351,8 @@ class SchedulerDvm {
     }
   }
 
-  Future<void> _publishDueJob(String jobId) async {
-    final job = await config.store.getJob(jobId);
+  Future<void> _publishDueJob(String requestEventId) async {
+    final job = await config.store.getJobByRequestEventId(requestEventId);
     if (job == null || job.isTerminal) return;
 
     if (job.scheduleAt > _nowSeconds()) {

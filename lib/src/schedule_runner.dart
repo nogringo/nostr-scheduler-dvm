@@ -6,7 +6,7 @@ import 'dart:math';
 import 'dvm_job.dart';
 import 'scheduler_dvm_config.dart';
 
-typedef DueJobHandler = Future<void> Function(String jobId);
+typedef DueJobHandler = Future<void> Function(String requestEventId);
 
 class ScheduleRunner {
   /// Longer waits are chained, since a far `schedule_at` overflows `Duration`.
@@ -21,25 +21,25 @@ class ScheduleRunner {
       _onDue = onDue;
 
   void schedule(DvmJob job) {
-    cancel(job.jobId);
+    cancel(job.requestEventId);
     if (job.isTerminal) return;
 
     final now = _clock().millisecondsSinceEpoch ~/ 1000;
     final delaySeconds = job.scheduleAt - now;
     if (delaySeconds <= 0) {
-      unawaited(_run(job.jobId));
+      unawaited(_run(job.requestEventId));
       return;
     }
 
     final timerSeconds = min(delaySeconds, maxTimerDelaySeconds);
-    _timers[job.jobId] = Timer(Duration(seconds: timerSeconds), () {
-      _timers.remove(job.jobId);
-      unawaited(_run(job.jobId));
+    _timers[job.requestEventId] = Timer(Duration(seconds: timerSeconds), () {
+      _timers.remove(job.requestEventId);
+      unawaited(_run(job.requestEventId));
     });
   }
 
-  void cancel(String jobId) {
-    _timers.remove(jobId)?.cancel();
+  void cancel(String requestEventId) {
+    _timers.remove(requestEventId)?.cancel();
   }
 
   Future<void> dispose() async {
@@ -49,9 +49,9 @@ class ScheduleRunner {
     _timers.clear();
   }
 
-  Future<void> _run(String jobId) async {
+  Future<void> _run(String requestEventId) async {
     try {
-      await _onDue(jobId);
+      await _onDue(requestEventId);
     } catch (_) {
       // The caller owns durable job state and status feedback.
     }

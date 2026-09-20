@@ -10,7 +10,7 @@ void main() {
     due = [];
     runner = ScheduleRunner(
       clock: DateTime.now,
-      onDue: (jobId) async => due.add(jobId),
+      onDue: (requestEventId) async => due.add(requestEventId),
     );
   });
 
@@ -20,7 +20,7 @@ void main() {
     runner.schedule(_job(scheduleAt: _nowSeconds() - 1));
 
     await Future<void>.delayed(const Duration(milliseconds: 50));
-    expect(due, ['job']);
+    expect(due, ['request']);
   });
 
   test('does not run a job whose schedule_at overflows Duration', () async {

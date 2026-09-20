@@ -7,9 +7,13 @@ import 'dvm_job.dart';
 abstract class DvmJobStore {
   Future<void> putJob(DvmJob job);
 
-  Future<DvmJob?> getJob(String jobId);
-
   Future<DvmJob?> getJobByRequestEventId(String requestEventId);
+
+  /// A `job_id` is a client-chosen label, unique per client and not globally.
+  Future<DvmJob?> getJobByClientJobId({
+    required String clientPubkey,
+    required String jobId,
+  });
 
   Future<List<DvmJob>> listJobs();
 
@@ -23,6 +27,8 @@ class SembastDvmJobStore implements DvmJobStore {
   final sembast.StoreRef<String, Map<String, Object?>> _jobs;
   final bool _closeDatabase;
 
+  late final Future<void> _rekeyed = _rekeyLegacyRecords();
+
   SembastDvmJobStore(
     this._db, {
     bool closeDatabase = false,
@@ -31,22 +37,31 @@ class SembastDvmJobStore implements DvmJobStore {
        _jobs = sembast.stringMapStoreFactory.store(storeName);
 
   @override
-  Future<void> putJob(DvmJob job) {
-    return _jobs.record(job.jobId).put(_db, job.toJson());
-  }
-
-  @override
-  Future<DvmJob?> getJob(String jobId) async {
-    final json = await _jobs.record(jobId).get(_db);
-    return json == null ? null : DvmJob.fromJson(json);
+  Future<void> putJob(DvmJob job) async {
+    await _rekeyed;
+    await _jobs.record(job.requestEventId).put(_db, job.toJson());
   }
 
   @override
   Future<DvmJob?> getJobByRequestEventId(String requestEventId) async {
+    await _rekeyed;
+    final json = await _jobs.record(requestEventId).get(_db);
+    return json == null ? null : DvmJob.fromJson(json);
+  }
+
+  @override
+  Future<DvmJob?> getJobByClientJobId({
+    required String clientPubkey,
+    required String jobId,
+  }) async {
+    await _rekeyed;
     final snapshots = await _jobs.find(
       _db,
       finder: sembast.Finder(
-        filter: sembast.Filter.equals('requestEventId', requestEventId),
+        filter: sembast.Filter.and([
+          sembast.Filter.equals('clientPubkey', clientPubkey),
+          sembast.Filter.equals('jobId', jobId),
+        ]),
         limit: 1,
       ),
     );
@@ -56,6 +71,7 @@ class SembastDvmJobStore implements DvmJobStore {
 
   @override
   Future<List<DvmJob>> listJobs() async {
+    await _rekeyed;
     final snapshots = await _jobs.find(
       _db,
       finder: sembast.Finder(sortOrders: [sembast.SortOrder('scheduleAt')]),
@@ -67,6 +83,7 @@ class SembastDvmJobStore implements DvmJobStore {
 
   @override
   Future<List<DvmJob>> listActiveJobs() async {
+    await _rekeyed;
     final snapshots = await _jobs.find(
       _db,
       finder: sembast.Finder(
@@ -77,6 +94,21 @@ class SembastDvmJobStore implements DvmJobStore {
     return snapshots
         .map((snapshot) => DvmJob.fromJson(snapshot.value))
         .toList();
+  }
+
+  /// Jobs written by 0.3.0 are keyed by their job id, which the record key no
+  /// longer is; left as they are, they would never be found again.
+  Future<void> _rekeyLegacyRecords() async {
+    await _db.transaction((txn) async {
+      for (final snapshot in await _jobs.find(txn)) {
+        final requestEventId = snapshot.value['requestEventId'];
+        if (requestEventId is! String || requestEventId == snapshot.key) {
+          continue;
+        }
+        await _jobs.record(requestEventId).put(txn, snapshot.value);
+        await _jobs.record(snapshot.key).delete(txn);
+      }
+    });
   }
 
   @override

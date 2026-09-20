@@ -1,5 +1,10 @@
 ## 0.3.1
 
+- **Breaking:** `DvmJobStore.getJob(jobId)` is replaced by
+  `getJobByClientJobId(clientPubkey:, jobId:)`, and jobs are keyed by their
+  request event id. A `job_id` is unique per client instead of globally, so a
+  client can no longer take a `job_id` away from another, by accident or to
+  block it. Existing Sembast records are rekeyed on first access.
 - Reject a `schedule_at` further ahead than `SchedulerDvmConfig.maxScheduleAhead`
   (10 years by default) with an `error` feedback. A far enough `schedule_at`
   overflowed `Duration` and fired its timer at once, so the job rescheduled
