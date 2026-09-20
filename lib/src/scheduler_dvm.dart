@@ -245,6 +245,8 @@ class SchedulerDvm {
       return;
     }
 
+    if (_isStale(payload.scheduleAt)) return;
+
     final existing = await config.store.getJobByClientJobId(
       clientPubkey: event.pubKey,
       jobId: payload.jobId,
@@ -359,6 +361,7 @@ class SchedulerDvm {
       _runner.schedule(job);
       return;
     }
+    if (_isStale(job.scheduleAt)) return;
 
     final publishResult = await _publishTargetEvent(job);
     final now = _nowSeconds();
@@ -443,6 +446,9 @@ class SchedulerDvm {
     if (event.getFirstTag('p') != config.dvmPubkey) return false;
     return event.tags.any((tag) => tag.length == 1 && tag.first == 'encrypted');
   }
+
+  bool _isStale(int scheduleAt) =>
+      scheduleAt < _nowSeconds() - config.maxScheduleBehind.inSeconds;
 
   int _nowSeconds() => config.clock().millisecondsSinceEpoch ~/ 1000;
 }

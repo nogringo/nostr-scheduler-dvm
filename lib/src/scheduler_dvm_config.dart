@@ -50,6 +50,7 @@ class SchedulerDvmConfig {
   static const String defaultName = 'Scheduler DVM';
   static const String defaultAbout = 'Schedule any signed Nostr event.';
   static const Duration defaultMaxScheduleAhead = Duration(days: 10 * 365);
+  static const Duration defaultMaxScheduleBehind = Duration(days: 7);
   static const int defaultMaxRelaysPerJob = 20;
 
   final Ndk ndk;
@@ -76,6 +77,9 @@ class SchedulerDvmConfig {
 
   /// Requests whose `schedule_at` is further ahead than this are rejected.
   final Duration maxScheduleAhead;
+
+  /// Requests whose `schedule_at` is further in the past than this are ignored.
+  final Duration maxScheduleBehind;
 
   /// Requests asking for more target relays than this are rejected.
   final int maxRelaysPerJob;
@@ -109,6 +113,7 @@ class SchedulerDvmConfig {
     this.about,
     this.announceNip89 = true,
     this.maxScheduleAhead = defaultMaxScheduleAhead,
+    this.maxScheduleBehind = defaultMaxScheduleBehind,
     this.maxRelaysPerJob = defaultMaxRelaysPerJob,
     this.targetRelayPolicy = RelayUrlPolicy.public,
     this.legacyEphemeralPubkeyTag = true,

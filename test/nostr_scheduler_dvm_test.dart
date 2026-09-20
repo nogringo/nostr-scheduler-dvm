@@ -470,6 +470,113 @@ void main() {
     expect(await storedJob(jobId), isNull);
   });
 
+  test('ignores a schedule_at further in the past than the cutoff', () async {
+    const staleJobId =
+        '9999999999999999999999999999999999999999999999999999999999999999';
+    const barrierJobId =
+        '8888888888888888888888888888888888888888888888888888888888888888';
+    final target = await _signedTextEvent(
+      clientNdk,
+      clientKey,
+      'too old',
+      DateTime.now(),
+    );
+    final stale = await _signedScheduleRequest(
+      clientNdk: clientNdk,
+      clientKey: clientKey,
+      dvmPubkey: dvmKey.publicKey,
+      payload: {
+        'job_id': staleJobId,
+        'schedule_at':
+            DateTime.now()
+                .subtract(const Duration(days: 8))
+                .millisecondsSinceEpoch ~/
+            1000,
+        'signed_event': {
+          'id': target.id,
+          'pubkey': target.pubKey,
+          'created_at': target.createdAt,
+          'kind': target.kind,
+          'tags': target.tags,
+          'content': target.content,
+          'sig': target.sig,
+        },
+        'relays': [relay.url],
+      },
+    );
+
+    await _broadcast(clientNdk, stale, relay.url);
+
+    // A request the DVM does answer, so the silent one is known to be handled.
+    await _broadcast(
+      clientNdk,
+      await _validScheduleRequest(
+        clientNdk: clientNdk,
+        clientKey: clientKey,
+        dvmPubkey: dvmKey.publicKey,
+        relayUrl: relay.url,
+        jobId: barrierJobId,
+      ),
+      relay.url,
+    );
+    await _waitForFeedbackStatus(
+      relay: relay,
+      clientNdk: clientNdk,
+      jobId: barrierJobId,
+      status: 'scheduled',
+    );
+
+    expect(await storedJob(staleJobId), isNull);
+    expect(_feedbackEvents(relay, staleJobId), isEmpty);
+    expect(relay.receivedEvents.any((event) => event.id == target.id), isFalse);
+  });
+
+  test('publishes a past schedule_at that is inside the cutoff', () async {
+    const jobId =
+        '7777777777777777777777777777777777777777777777777777777777777777';
+    final target = await _signedTextEvent(
+      clientNdk,
+      clientKey,
+      'late but fresh',
+      DateTime.now(),
+    );
+    final request = await _signedScheduleRequest(
+      clientNdk: clientNdk,
+      clientKey: clientKey,
+      dvmPubkey: dvmKey.publicKey,
+      payload: {
+        'job_id': jobId,
+        'schedule_at':
+            DateTime.now()
+                .subtract(const Duration(days: 1))
+                .millisecondsSinceEpoch ~/
+            1000,
+        'signed_event': {
+          'id': target.id,
+          'pubkey': target.pubKey,
+          'created_at': target.createdAt,
+          'kind': target.kind,
+          'tags': target.tags,
+          'content': target.content,
+          'sig': target.sig,
+        },
+        'relays': [relay.url],
+      },
+    );
+
+    await _broadcast(clientNdk, request, relay.url);
+
+    await _waitFor(
+      () => relay.receivedEvents.any((event) => event.id == target.id),
+    );
+    await _waitForFeedbackStatus(
+      relay: relay,
+      clientNdk: clientNdk,
+      jobId: jobId,
+      status: 'published',
+    );
+  });
+
   test('sends error feedback for too many target relays', () async {
     const jobId =
         'dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd';

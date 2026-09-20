@@ -63,6 +63,11 @@ A request scheduled further ahead than `maxScheduleAhead` (10 years by default),
 or asking for more than `maxRelaysPerJob` target relays (20 by default), is
 rejected with an `error` feedback.
 
+A request whose `schedule_at` is further in the past than `maxScheduleBehind`
+(one week by default) is ignored instead: no job, no feedback. The same cutoff
+applies to a job that became due while the DVM was stopped, so a DVM restarted
+after a long outage does not publish a backlog of stale events.
+
 Target relays go through `targetRelayPolicy`, which accepts public `wss://`
 relays only, so a request cannot point the DVM at `ws://localhost` or at a
 private address of the network it runs on. The check is lexical: a hostname
