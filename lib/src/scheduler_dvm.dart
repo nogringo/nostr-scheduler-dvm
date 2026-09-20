@@ -23,7 +23,6 @@ class SchedulerDvm {
 
   final List<NdkResponse> _responses = [];
   final List<StreamSubscription<Nip01Event>> _subscriptions = [];
-  final Map<String, Nip01Event> _pendingDeletions = {};
   final Set<String> _ingestedEventIds = {};
 
   SyncHandle? _syncHandle;
@@ -202,8 +201,19 @@ class SchedulerDvm {
     Nip01Event event,
     Future<void> Function(Nip01Event event) handler,
   ) async {
-    if (!_started || !_ingestedEventIds.add(event.id)) return;
+    if (!_started || !_rememberIngested(event.id)) return;
     await handler(event);
+  }
+
+  /// Only has to catch a redelivery close in time: the job store and the
+  /// decrypted payload sidecar already make a later one idempotent, so the
+  /// oldest id is cheap to forget once the set is full.
+  bool _rememberIngested(String eventId) {
+    if (!_ingestedEventIds.add(eventId)) return false;
+    if (_ingestedEventIds.length > config.maxRememberedEvents) {
+      _ingestedEventIds.remove(_ingestedEventIds.first);
+    }
+    return true;
   }
 
   void _startSubscriptions() {
@@ -211,7 +221,7 @@ class SchedulerDvm {
       filter: _scheduleRequestFilter,
       explicitRelays: _relays.requestRelays,
       cacheRead: false,
-      cacheWrite: false,
+      cacheWrite: true,
     );
     _responses.add(scheduleResponse);
     _subscriptions.add(
@@ -224,7 +234,7 @@ class SchedulerDvm {
       filter: _deletionFilter,
       explicitRelays: _relays.requestRelays,
       cacheRead: false,
-      cacheWrite: false,
+      cacheWrite: true,
     );
     _responses.add(deletionResponse);
     _subscriptions.add(
@@ -298,8 +308,7 @@ class SchedulerDvm {
       status: DvmJobStatus.scheduled,
     );
 
-    final pendingDeletion = _pendingDeletions.remove(event.id);
-    if (pendingDeletion != null && pendingDeletion.pubKey == event.pubKey) {
+    if (await _isCancelledOnArrival(event)) {
       job = job.copyWith(
         status: DvmJobStatus.cancelled,
         updatedAt: now,
@@ -377,14 +386,34 @@ class SchedulerDvm {
     }
   }
 
+  /// Whether the client cancelled [request] before the DVM got to it. NDK
+  /// hides such a request from the live stream once the cancellation is cached,
+  /// so the sweep is what brings it here, and its client is still owed a
+  /// cancelled feedback.
+  Future<bool> _isCancelledOnArrival(Nip01Event request) async {
+    try {
+      final deletions = await config.ndk.config.cache.loadEvents(
+        kinds: [deleteKind],
+        tags: {
+          ...?_deletionFilter.tags,
+          '#e': [request.id],
+        },
+      );
+      return deletions.any((deletion) => deletion.pubKey == request.pubKey);
+    } catch (_) {
+      // Without the lookup the job is created, and the deletion pass of the
+      // sweep cancels it right after.
+      return false;
+    }
+  }
+
   Future<void> _handleDeletion(Nip01Event event) async {
     final requestEventIds = event.getTags('e');
     for (final requestEventId in requestEventIds) {
       final job = await config.store.getJobByRequestEventId(requestEventId);
-      if (job == null) {
-        _pendingDeletions[requestEventId] = event;
-        continue;
-      }
+      // A cancellation naming a request the DVM has not seen needs nothing
+      // kept: the request looks it up itself when it lands.
+      if (job == null) continue;
       if (event.pubKey != job.clientPubkey) continue;
       if (job.status == DvmJobStatus.cancelled) continue;
 

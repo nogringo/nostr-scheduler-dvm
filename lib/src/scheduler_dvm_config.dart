@@ -52,6 +52,7 @@ class SchedulerDvmConfig {
   static const Duration defaultMaxScheduleAhead = Duration(days: 10 * 365);
   static const Duration defaultMaxScheduleBehind = Duration(days: 7);
   static const int defaultMaxRelaysPerJob = 20;
+  static const int defaultMaxRememberedEvents = 10000;
 
   final Ndk ndk;
   final EventSigner? _configuredSigner;
@@ -84,6 +85,13 @@ class SchedulerDvmConfig {
   /// Requests asking for more target relays than this are rejected.
   final int maxRelaysPerJob;
 
+  /// How many event ids the DVM keeps in memory to drop a redelivery.
+  ///
+  /// Anything published to the DVM lands here, so the set is capped rather
+  /// than left to grow: a `kind:5` naming a thousand unknown requests must not
+  /// cost a thousand permanent entries.
+  final int maxRememberedEvents;
+
   /// Which target relay URLs a request may ask the DVM to publish to.
   final RelayUrlPolicy targetRelayPolicy;
 
@@ -115,6 +123,7 @@ class SchedulerDvmConfig {
     this.maxScheduleAhead = defaultMaxScheduleAhead,
     this.maxScheduleBehind = defaultMaxScheduleBehind,
     this.maxRelaysPerJob = defaultMaxRelaysPerJob,
+    this.maxRememberedEvents = defaultMaxRememberedEvents,
     this.targetRelayPolicy = RelayUrlPolicy.public,
     this.legacyEphemeralPubkeyTag = true,
     DvmClock? clock,

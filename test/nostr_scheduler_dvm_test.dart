@@ -781,6 +781,54 @@ void main() {
     );
   });
 
+  test('never announces a request cancelled before it landed', () async {
+    final jobId = 'd' * 64;
+    final request = await _validScheduleRequest(
+      clientNdk: clientNdk,
+      clientKey: clientKey,
+      dvmPubkey: dvmKey.publicKey,
+      relayUrl: relay.url,
+      jobId: jobId,
+    );
+    final deletion = await clientNdk.accounts.getLoggedAccount()!.signer.sign(
+      Nip01Event(
+        pubKey: clientKey.publicKey,
+        kind: SchedulerDvm.deleteKind,
+        tags: [
+          ['e', request.id],
+          ['k', '${SchedulerDvm.requestKind}'],
+          ['p', dvmKey.publicKey],
+        ],
+        content: 'cancel',
+        createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      ),
+    );
+
+    // The cancellation reaches the DVM first, so the request must never be
+    // announced as scheduled on its way to being cancelled.
+    await dvmNdk.config.cache.saveEvent(deletion);
+    await dvm.resync();
+    await dvmNdk.config.cache.saveEvent(request);
+    await dvm.resync();
+
+    await _waitForFeedbackStatus(
+      relay: relay,
+      clientNdk: clientNdk,
+      jobId: jobId,
+      status: 'cancelled',
+    );
+    expect(await storedJob(jobId), isNotNull);
+    expect((await storedJob(jobId))?.status, DvmJobStatus.cancelled);
+
+    final statuses = await _feedbackStatuses(
+      relay: relay,
+      clientNdk: clientNdk,
+      jobId: jobId,
+    );
+    expect(statuses, contains('cancelled'));
+    expect(statuses, isNot(contains('scheduled')));
+  });
+
   test('ignores a deletion that does not tag the DVM', () async {
     final request = await _validScheduleRequest(
       clientNdk: clientNdk,
@@ -1144,6 +1192,25 @@ List<Nip01Event> _feedbackEvents(MockRelay relay, String jobId) {
             event.getFirstTag('r') == jobId,
       )
       .toList();
+}
+
+Future<List<String>> _feedbackStatuses({
+  required MockRelay relay,
+  required Ndk clientNdk,
+  required String jobId,
+}) async {
+  final statuses = <String>[];
+  for (final event in _feedbackEvents(relay, jobId)) {
+    final decrypted = await clientNdk.accounts
+        .getLoggedAccount()!
+        .signer
+        .decryptNip44(ciphertext: event.content, senderPubKey: event.pubKey);
+    if (decrypted == null) continue;
+    final payload = jsonDecode(decrypted) as Map<String, dynamic>;
+    final status = payload['status'];
+    if (status is String) statuses.add(status);
+  }
+  return statuses;
 }
 
 Future<void> _waitForFeedbackStatus({
