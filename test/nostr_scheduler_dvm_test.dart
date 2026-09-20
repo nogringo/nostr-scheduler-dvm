@@ -49,6 +49,45 @@ void main() {
     return engine;
   }
 
+  /// Replaces the DVM started in [setUp], which would otherwise publish the
+  /// same job under the default policy and answer the target relay's challenge
+  /// with a second identity.
+  Future<void> restartDvm({
+    required TargetRelayAuth targetRelayAuth,
+    Ndk? ndk,
+    EventSigner? signer,
+  }) async {
+    await dvm.dispose();
+    dvmsToDispose.remove(dvm);
+
+    final dvmNdkToUse = ndk ?? dvmNdk;
+    final db = await sembast_memory.databaseFactoryMemory.openDatabase(
+      'auth-dvm-${dbsToClose.length}-${relay.url}.db',
+    );
+    dbsToClose.add(db);
+    dvm = _createDvm(
+      ndk: dvmNdkToUse,
+      syncEngine: await startSyncEngine(dvmNdkToUse),
+      signer: signer,
+      database: db,
+      bootstrapRelayUrl: relay.url,
+      targetRelayAuth: targetRelayAuth,
+    );
+    dvmStore = dvm.config.store;
+    dvmsToDispose.add(dvm);
+    await dvm.start();
+  }
+
+  Future<MockRelay> startAuthenticatingRelay() async {
+    final authRelay = MockRelay(
+      name: 'auth target relay',
+      requireAuthForEvents: true,
+    );
+    await authRelay.startServer();
+    addTearDown(authRelay.stopServer);
+    return authRelay;
+  }
+
   Future<DvmJob?> storedJob(String jobId, {DvmJobStore? store}) {
     return (store ?? dvmStore).getJobByClientJobId(
       clientPubkey: clientKey.publicKey,
@@ -886,6 +925,176 @@ void main() {
     );
   });
 
+  test('answers a target relay challenge with neither party key', () async {
+    final authRelay = await startAuthenticatingRelay();
+    final target = await _signedTextEvent(
+      clientNdk,
+      clientKey,
+      'publish me behind auth',
+      DateTime.now(),
+    );
+
+    final job = await clientScheduler.schedule(
+      target,
+      [dvmKey.publicKey],
+      pubkey: clientKey.publicKey,
+      at: DateTime.now().add(const Duration(seconds: 1)),
+      relays: [authRelay.url],
+    );
+
+    await _waitFor(() async {
+      final stored = await storedJob(job.jobId);
+      return stored?.status == DvmJobStatus.published;
+    }, timeout: const Duration(seconds: 25));
+
+    expect(authRelay.matchingEvents(Filter(ids: [target.id])), isNotEmpty);
+    expect(authRelay.acceptedAuthPubkeys, isNotEmpty);
+    expect(authRelay.acceptedAuthPubkeys, isNot(contains(dvmKey.publicKey)));
+    expect(authRelay.acceptedAuthPubkeys, isNot(contains(clientKey.publicKey)));
+  });
+
+  test('never reuses an ephemeral key, nor the connection it opened', () async {
+    final authRelay = await startAuthenticatingRelay();
+    final jobIds = <String>[];
+    for (final content in ['first behind auth', 'second behind auth']) {
+      final target = await _signedTextEvent(
+        clientNdk,
+        clientKey,
+        content,
+        DateTime.now(),
+      );
+      final job = await clientScheduler.schedule(
+        target,
+        [dvmKey.publicKey],
+        pubkey: clientKey.publicKey,
+        at: DateTime.now().add(const Duration(seconds: 1)),
+        relays: [authRelay.url],
+      );
+      jobIds.add(job.jobId);
+    }
+
+    for (final jobId in jobIds) {
+      await _waitFor(() async {
+        final stored = await storedJob(jobId);
+        return stored?.status == DvmJobStatus.published;
+      }, timeout: const Duration(seconds: 25));
+    }
+
+    expect(
+      authRelay.acceptedAuthPubkeys.toSet().length,
+      greaterThanOrEqualTo(2),
+    );
+    await _waitFor(
+      () => authRelay.acceptedAuthPubkeys.every(
+        (pubkey) => authRelay.connectionsAuthenticatedAs(pubkey) == 0,
+      ),
+    );
+  });
+
+  test('authenticates as the DVM when the policy asks for it', () async {
+    await restartDvm(targetRelayAuth: TargetRelayAuth.dvm);
+    final authRelay = await startAuthenticatingRelay();
+    final target = await _signedTextEvent(
+      clientNdk,
+      clientKey,
+      'publish me as the dvm',
+      DateTime.now(),
+    );
+
+    final job = await clientScheduler.schedule(
+      target,
+      [dvmKey.publicKey],
+      pubkey: clientKey.publicKey,
+      at: DateTime.now().add(const Duration(seconds: 1)),
+      relays: [authRelay.url],
+    );
+
+    await _waitFor(() async {
+      final stored = await storedJob(job.jobId);
+      return stored?.status == DvmJobStatus.published;
+    }, timeout: const Duration(seconds: 25));
+
+    expect(authRelay.acceptedAuthPubkeys, contains(dvmKey.publicKey));
+  });
+
+  test(
+    'authenticates as the DVM, not as the app account sharing its NDK',
+    () async {
+      final sharedNdk = _createNdk(relay.url);
+      ndksToDestroy.add(sharedNdk);
+      sharedNdk.accounts.loginPrivateKey(
+        pubkey: clientKey.publicKey,
+        privkey: clientKey.privateKey!,
+      );
+      final dvmSigner = const Bip340EventSignerFactory().create(
+        privateKey: dvmKey.privateKey!,
+        publicKey: dvmKey.publicKey,
+      );
+      addTearDown(dvmSigner.dispose);
+
+      await restartDvm(
+        targetRelayAuth: TargetRelayAuth.dvm,
+        ndk: sharedNdk,
+        signer: dvmSigner,
+      );
+      final authRelay = await startAuthenticatingRelay();
+
+      final target = await _signedTextEvent(
+        clientNdk,
+        clientKey,
+        'publish me from a shared ndk',
+        DateTime.now(),
+      );
+      final job = await clientScheduler.schedule(
+        target,
+        [dvmKey.publicKey],
+        pubkey: clientKey.publicKey,
+        at: DateTime.now().add(const Duration(seconds: 1)),
+        relays: [authRelay.url],
+      );
+
+      await _waitFor(() async {
+        final stored = await storedJob(job.jobId);
+        return stored?.status == DvmJobStatus.published;
+      }, timeout: const Duration(seconds: 25));
+
+      expect(authRelay.acceptedAuthPubkeys, contains(dvmKey.publicKey));
+      expect(
+        authRelay.acceptedAuthPubkeys,
+        isNot(contains(clientKey.publicKey)),
+      );
+    },
+  );
+
+  test('fails a publish rather than name anyone when told never to', () async {
+    await restartDvm(targetRelayAuth: TargetRelayAuth.never);
+    final authRelay = await startAuthenticatingRelay();
+    final target = await _signedTextEvent(
+      clientNdk,
+      clientKey,
+      'do not authenticate for me',
+      DateTime.now(),
+    );
+
+    final job = await clientScheduler.schedule(
+      target,
+      [dvmKey.publicKey],
+      pubkey: clientKey.publicKey,
+      at: DateTime.now().add(const Duration(seconds: 1)),
+      relays: [authRelay.url],
+    );
+
+    await _waitFor(() async {
+      final stored = await storedJob(job.jobId);
+      return stored?.status == DvmJobStatus.failed;
+    }, timeout: const Duration(seconds: 25));
+
+    final stored = await storedJob(job.jobId);
+    expect(stored!.lastMessage, contains('auth-required'));
+    expect(authRelay.acceptedAuths, 0);
+    expect(authRelay.matchingEvents(Filter(ids: [target.id])), isEmpty);
+  });
+
   test('publishes persisted jobs after restart', () async {
     final tempDir = await Directory.systemTemp.createTemp('scheduler-dvm-test');
     addTearDown(() async {
@@ -1060,6 +1269,7 @@ SchedulerDvm _createDvm({
   EventSigner? signer,
   required sembast.Database database,
   required String bootstrapRelayUrl,
+  TargetRelayAuth targetRelayAuth = TargetRelayAuth.ephemeral,
 }) {
   return SchedulerDvm(
     SchedulerDvmConfig(
@@ -1070,6 +1280,7 @@ SchedulerDvm _createDvm({
       bootstrapRelays: [bootstrapRelayUrl],
       announceNip89: false,
       targetRelayPolicy: RelayUrlPolicy.permissive,
+      targetRelayAuth: targetRelayAuth,
     ),
   );
 }

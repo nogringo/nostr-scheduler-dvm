@@ -3,6 +3,7 @@ import 'package:sync_engine_shim_for_ndk/sync_engine_shim_for_ndk.dart';
 
 import 'dvm_job_store.dart';
 import 'relay_url_policy.dart';
+import 'target_relay_auth.dart';
 
 typedef DvmClock = DateTime Function();
 
@@ -95,6 +96,14 @@ class SchedulerDvmConfig {
   /// Which target relay URLs a request may ask the DVM to publish to.
   final RelayUrlPolicy targetRelayPolicy;
 
+  /// Which identity a target relay asking for NIP-42 is answered with.
+  ///
+  /// The default keeps the DVM out of the relay's logs: a key generated per
+  /// publish cannot be tied to the next one. Set it to [TargetRelayAuth.dvm]
+  /// for a DVM whitelisted on the relays it publishes to, where its own key is
+  /// the only one that gets in.
+  final TargetRelayAuth targetRelayAuth;
+
   /// Also tag feedback with `["ephemeral-pubkey", "<dvm_pubkey>"]`.
   ///
   /// Feedback used to be encrypted with a one-time key carried by that tag.
@@ -125,6 +134,7 @@ class SchedulerDvmConfig {
     this.maxRelaysPerJob = defaultMaxRelaysPerJob,
     this.maxRememberedEvents = defaultMaxRememberedEvents,
     this.targetRelayPolicy = RelayUrlPolicy.public,
+    this.targetRelayAuth = TargetRelayAuth.ephemeral,
     this.legacyEphemeralPubkeyTag = true,
     DvmClock? clock,
   }) : bootstrapRelays = _resolveBootstrapRelays(ndk, bootstrapRelays),

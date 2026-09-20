@@ -1,3 +1,14 @@
+## 0.5.0
+
+- **Behavior change:** a target relay asking for NIP-42 is answered with a key
+  generated for that publish alone, instead of whichever account NDK happened
+  to have logged in. A relay can no longer tie two scheduled events to the same
+  DVM, and an embedded DVM no longer authenticates as the app's own user. Pass
+  `targetRelayAuth: TargetRelayAuth.dvm` for a DVM whitelisted on the relays it
+  publishes to, or `TargetRelayAuth.never` to fail the publish rather than name
+  anyone. A refused publish now reports why instead of timing out silently.
+- **Breaking:** require `ndk: ^0.10.0-dev.5`.
+
 ## 0.4.0
 
 - **Breaking:** `DvmJobStore.getJob(jobId)` becomes

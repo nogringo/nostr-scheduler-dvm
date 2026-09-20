@@ -11,3 +11,4 @@ export 'src/schedule_request_payload.dart';
 export 'src/schedule_runner.dart';
 export 'src/scheduler_dvm.dart';
 export 'src/scheduler_dvm_config.dart';
+export 'src/target_relay_auth.dart';

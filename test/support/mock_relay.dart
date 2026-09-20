@@ -43,6 +43,10 @@ class MockRelay {
   /// died, so a re-authentication can be told apart from a surviving one
   int acceptedAuths = 0;
 
+  /// every pubkey whose AUTH the relay accepted, in order and with repeats,
+  /// kept after the socket died so a test can tell two identities apart
+  final List<String> acceptedAuthPubkeys = [];
+
   /// every AUTH the relay received, answered or not
   int receivedAuths = 0;
 
@@ -298,6 +302,7 @@ class MockRelay {
                 if (eventChallenge == challenge && relay == url) {
                   authenticatedPubkeys.add(event.pubKey);
                   acceptedAuths++;
+                  acceptedAuthPubkeys.add(event.pubKey);
                   authSuccess = true;
                 }
               }

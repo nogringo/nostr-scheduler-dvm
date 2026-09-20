@@ -10,6 +10,7 @@ import 'feedback_publisher.dart';
 import 'schedule_request_payload.dart';
 import 'schedule_runner.dart';
 import 'scheduler_dvm_config.dart';
+import 'target_relay_auth.dart';
 
 class SchedulerDvm {
   static const int requestKind = 5905;
@@ -477,12 +478,14 @@ class SchedulerDvm {
   }
 
   Future<_PublishResult> _publishTargetEvent(DvmJob job) async {
+    final auth = _targetRelayAuth();
     try {
       final response = config.ndk.broadcast.broadcast(
         nostrEvent: job.targetEvent,
         specificRelays: job.targetRelays,
         customSigner: config.signer,
         timeout: const Duration(seconds: 15),
+        auth: auth,
       );
       final results = await response.broadcastDoneFuture.timeout(
         const Duration(seconds: 16),
@@ -512,6 +515,59 @@ class SchedulerDvm {
       );
     } catch (error) {
       return _PublishResult(success: false, message: 'Publish failed: $error');
+    } finally {
+      await _closeEphemeralAuthConnections(auth, job.targetRelays);
+    }
+  }
+
+  /// Which identity a target relay asking for NIP-42 is answered with.
+  ///
+  /// Always [RelayAuth.allow]: the event goes out on the anonymous connection,
+  /// and only a relay that refuses it there ever sees an identity.
+  RelayAuth _targetRelayAuth() {
+    switch (config.targetRelayAuth) {
+      case TargetRelayAuth.never:
+        return const RelayAuth.never();
+      case TargetRelayAuth.dvm:
+        return RelayAuth.allow(_dvmAccount());
+      case TargetRelayAuth.ephemeral:
+        return RelayAuth.allow(_ephemeralAccount());
+    }
+  }
+
+  Account _dvmAccount() {
+    final registered = config.ndk.accounts.accounts[config.dvmPubkey];
+    if (registered != null && registered.signer.canSign()) return registered;
+    return Account(
+      type: AccountType.privateKey,
+      pubkey: config.dvmPubkey,
+      signer: config.signer,
+    );
+  }
+
+  Account _ephemeralAccount() {
+    final signer = const Bip340EventSignerFactory().createWithNewKeyPair();
+    return Account(
+      type: AccountType.privateKey,
+      pubkey: signer.getPublicKey(),
+      signer: signer,
+    );
+  }
+
+  /// An ephemeral key signs one publish, so the connection it opened is not
+  /// kept either: reusing it would tie the next job to this one, and a busy DVM
+  /// would hold a socket per job.
+  Future<void> _closeEphemeralAuthConnections(
+    RelayAuth auth,
+    Iterable<String> relayUrls,
+  ) async {
+    if (config.targetRelayAuth != TargetRelayAuth.ephemeral) return;
+    final pubkey = auth.account?.pubkey;
+    if (pubkey == null) return;
+    for (final url in relayUrls) {
+      await config.ndk.relays.closeConnection(
+        RelayConnectionKey.authenticated(url, pubkey),
+      );
     }
   }
 

@@ -81,6 +81,21 @@ SchedulerDvmConfig(
 );
 ```
 
+A target relay that answers `auth-required` (NIP-42) is answered with a key
+generated for that publish alone, so it cannot tie two scheduled events to the
+same DVM. Nothing is revealed to a relay that does not ask: the event goes out
+on the anonymous connection first. A DVM whitelisted on the relays it publishes
+to needs its own key instead, which no ephemeral one can stand in for:
+
+```dart
+SchedulerDvmConfig(
+  ...
+  targetRelayAuth: TargetRelayAuth.dvm,
+);
+```
+
+`TargetRelayAuth.never` fails the publish rather than name anyone.
+
 Live subscriptions deliver requests as they are published. The sync engine
 keeps them, and the cancellations, synced into the NDK cache, so whatever was
 published while the DVM was stopped or disconnected is processed on the next
