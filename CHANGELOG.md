@@ -1,5 +1,13 @@
 ## 0.3.1
 
+- Encrypt `kind:7000` feedback with the DVM key, as the spec now describes,
+  instead of a one-time ephemeral key. Feedback still carries
+  `["ephemeral-pubkey", "<dvm_pubkey>"]`, so clients that read the sender key
+  from that tag keep decrypting; pass
+  `SchedulerDvmConfig(legacyEphemeralPubkeyTag: false)` to emit the spec tags
+  only. The tag will be dropped in a future release.
+- **Breaking:** `FeedbackPublisher` no longer takes a `signerFactory`. Nothing
+  creates a key pair per feedback any more.
 - **Breaking:** `DvmJobStore.getJob(jobId)` is replaced by
   `getJobByClientJobId(clientPubkey:, jobId:)`, and jobs are keyed by their
   request event id. A `job_id` is unique per client instead of globally, so a

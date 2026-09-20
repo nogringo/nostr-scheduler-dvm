@@ -272,11 +272,60 @@ void main() {
       expect(feedback.getFirstTag('p'), isNull);
       expect(feedback.pubKey, dvmKey.publicKey);
       expect(
+        feedback.getFirstTag(FeedbackPublisher.legacyEphemeralPubkeyTag),
+        dvmKey.publicKey,
+      );
+      expect(
         await Bip340EventVerifier(useIsolate: false).verify(feedback),
         isTrue,
       );
     },
   );
+
+  test('omits the legacy ephemeral-pubkey tag when it is turned off', () async {
+    final db = await sembast_memory.databaseFactoryMemory.openDatabase(
+      'legacy-tag-${relay.url}.db',
+    );
+    dbsToClose.add(db);
+    final config = SchedulerDvmConfig(
+      ndk: dvmNdk,
+      store: SembastDvmJobStore(db),
+      syncEngine: await startSyncEngine(dvmNdk),
+      announceNip89: false,
+      legacyEphemeralPubkeyTag: false,
+    );
+    final publisher = FeedbackPublisher(
+      config,
+      const SchedulerDvmProfile(
+        name: 'Scheduler DVM',
+        about: 'about',
+        fromMetadata: false,
+      ),
+      SchedulerDvmRelays(
+        bootstrapRelays: [relay.url],
+        readRelays: [relay.url],
+        writeRelays: [relay.url],
+        fromNip65: false,
+      ),
+    );
+
+    final feedback = await publisher.publishFeedback(
+      jobId: 'legacy-tag-job',
+      clientPubkey: clientKey.publicKey,
+      status: 'scheduled',
+    );
+
+    expect(feedback.tags, [
+      ['r', 'legacy-tag-job'],
+    ]);
+    expect(
+      await clientNdk.accounts.getLoggedAccount()!.signer.decryptNip44(
+        ciphertext: feedback.content,
+        senderPubKey: feedback.pubKey,
+      ),
+      '{"status":"scheduled"}',
+    );
+  });
 
   test('publishes due events and reports published', () async {
     final target = await _signedTextEvent(
@@ -939,15 +988,10 @@ Future<void> _waitForFeedbackStatus({
 }) {
   return _waitFor(() async {
     for (final event in _feedbackEvents(relay, jobId)) {
-      final ephemeralPubkey = event.getFirstTag('ephemeral-pubkey');
-      if (ephemeralPubkey == null) continue;
       final decrypted = await clientNdk.accounts
           .getLoggedAccount()!
           .signer
-          .decryptNip44(
-            ciphertext: event.content,
-            senderPubKey: ephemeralPubkey,
-          );
+          .decryptNip44(ciphertext: event.content, senderPubKey: event.pubKey);
       if (decrypted == null) continue;
       final payload = jsonDecode(decrypted) as Map<String, dynamic>;
       if (payload['status'] == status) return true;

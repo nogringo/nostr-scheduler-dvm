@@ -9,18 +9,13 @@ import 'scheduler_dvm_config.dart';
 class FeedbackPublisher {
   static const int feedbackKind = 7000;
   static const int discoveryKind = 31990;
+  static const String legacyEphemeralPubkeyTag = 'ephemeral-pubkey';
 
   final SchedulerDvmConfig _config;
-  final LocalEventSignerFactory _signerFactory;
   SchedulerDvmRelays _relays;
   SchedulerDvmProfile _profile;
 
-  FeedbackPublisher(
-    this._config,
-    this._profile,
-    this._relays, {
-    LocalEventSignerFactory signerFactory = const Bip340EventSignerFactory(),
-  }) : _signerFactory = signerFactory;
+  FeedbackPublisher(this._config, this._profile, this._relays);
 
   void updateRelays(SchedulerDvmRelays relays) {
     _relays = relays;
@@ -36,36 +31,34 @@ class FeedbackPublisher {
     required String status,
     String? message,
   }) async {
-    final ephemeralSigner = _signerFactory.createWithNewKeyPair();
-    try {
-      final payload = jsonEncode({
-        'status': status,
-        if (message != null) 'message': message,
-      });
-      final encrypted = await ephemeralSigner.encryptNip44(
-        plaintext: payload,
-        recipientPubKey: clientPubkey,
-      );
-      if (encrypted == null) {
-        throw StateError('Failed to encrypt feedback');
-      }
-
-      final event = Nip01Event(
-        pubKey: _config.dvmPubkey,
-        kind: feedbackKind,
-        tags: [
-          ['r', jobId],
-          ['ephemeral-pubkey', ephemeralSigner.getPublicKey()],
-        ],
-        content: encrypted,
-        createdAt: _nowSeconds(),
-      );
-      final signed = await _config.signer.sign(event);
-      await _broadcast(signed);
-      return signed;
-    } finally {
-      await ephemeralSigner.dispose();
+    final payload = jsonEncode({
+      'status': status,
+      if (message != null) 'message': message,
+    });
+    final encrypted = await _config.signer.encryptNip44(
+      plaintext: payload,
+      recipientPubKey: clientPubkey,
+    );
+    if (encrypted == null) {
+      throw StateError('Failed to encrypt feedback');
     }
+
+    final event = Nip01Event(
+      pubKey: _config.dvmPubkey,
+      kind: feedbackKind,
+      tags: [
+        ['r', jobId],
+        // Clients written against the earlier spec read the sender key from
+        // this tag instead of from the event pubkey.
+        if (_config.legacyEphemeralPubkeyTag)
+          [legacyEphemeralPubkeyTag, _config.dvmPubkey],
+      ],
+      content: encrypted,
+      createdAt: _nowSeconds(),
+    );
+    final signed = await _config.signer.sign(event);
+    await _broadcast(signed);
+    return signed;
   }
 
   Future<Nip01Event> publishDiscovery() async {

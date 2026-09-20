@@ -8,7 +8,7 @@ private encrypted `kind:7000` feedback.
 
 ## Features
 
-- Scheduler DVM runtime for the draft Scheduler DVM protocol.
+- Scheduler DVM runtime for the draft [Scheduler DVM protocol][spec].
 - NIP-44 request decryption and feedback encryption.
 - NIP-65 relay resolution for the DVM pubkey.
 - Catch-up of requests and cancellations published while the DVM was offline,
@@ -87,14 +87,14 @@ it as `store`. `DvmJob.toJson()` and `DvmJob.fromJson()` handle serialization.
 
 ## Protocol
 
-- Schedule requests: `kind:5905`, NIP-44 encrypted to the DVM pubkey, tagged
-  with `["p", "<dvm_pubkey>"]` and `["encrypted"]`.
-- Feedback: `kind:7000`, encrypted with a one-time ephemeral key, tagged with
-  `["r", "<job_id>"]` and `["ephemeral-pubkey", "<ephemeral_pubkey>"]`.
-- Cancellation: standard `kind:5` delete event tagging the original
-  `kind:5905` event id, and carrying `["k", "5905"]` and
-  `["p", "<dvm_pubkey>"]`. Deletions without both are ignored.
-- Discovery: optional NIP-89 `kind:31990` announcement for `kind:5905`.
+The wire format is the [Scheduler DVM spec][spec].
+
+One deviation from it, for backward compatibility: feedback also carries
+`["ephemeral-pubkey", "<dvm_pubkey>"]`, where clients written against the
+revision that encrypted feedback with a one-time key read the sender key. Pass
+`legacyEphemeralPubkeyTag: false` to emit the spec tags only.
+
+[spec]: https://openspecs.uid.ovh/spec/npub1kg4sdvz3l4fr99n2jdz2vdxe2mpacva87hkdetv76ywacsfq5leqquw5te/scheduler-dvm
 
 ## Checks
 

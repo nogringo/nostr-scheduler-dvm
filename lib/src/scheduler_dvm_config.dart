@@ -82,6 +82,16 @@ class SchedulerDvmConfig {
 
   /// Which target relay URLs a request may ask the DVM to publish to.
   final RelayUrlPolicy targetRelayPolicy;
+
+  /// Also tag feedback with `["ephemeral-pubkey", "<dvm_pubkey>"]`.
+  ///
+  /// Feedback used to be encrypted with a one-time key carried by that tag.
+  /// The spec dropped it, and the DVM key encrypts the feedback, but clients
+  /// written against the earlier revision still read the sender key from the
+  /// tag. Repeating the DVM pubkey there keeps them decrypting. Set to false
+  /// to emit the current format only; the tag will be dropped in a future
+  /// release.
+  final bool legacyEphemeralPubkeyTag;
   final DvmClock clock;
   EventSigner? _resolvedSigner;
 
@@ -101,6 +111,7 @@ class SchedulerDvmConfig {
     this.maxScheduleAhead = defaultMaxScheduleAhead,
     this.maxRelaysPerJob = defaultMaxRelaysPerJob,
     this.targetRelayPolicy = RelayUrlPolicy.public,
+    this.legacyEphemeralPubkeyTag = true,
     DvmClock? clock,
   }) : bootstrapRelays = _resolveBootstrapRelays(ndk, bootstrapRelays),
        _configuredSigner = signer,
