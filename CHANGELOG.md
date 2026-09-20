@@ -27,6 +27,14 @@
   private address, and have it connect from inside its own network. Pass
   `RelayUrlPolicy.permissive` to keep the previous behavior, or a
   `RelayUrlPolicy` of your own.
+- Bound the cache sweep that catches up on missed requests. It reloaded every
+  `kind:5905` and `kind:5` the DVM had ever cached, on every sync tick, which
+  never stops growing on a persistent cache. The sweep now starts at
+  `cacheSweepFloor`, derived from the coverage the sync engine reports: the end
+  of the coverage contiguous from the epoch, across every relay of the request,
+  less the engine's `overlapMargin`. It falls back to the whole cache whenever
+  a relay has a gap reaching back to the epoch, so a fresh, interrupted or
+  newly added relay is still swept in full.
 
 ## 0.3.0
 

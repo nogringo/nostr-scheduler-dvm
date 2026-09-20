@@ -1,5 +1,6 @@
 library;
 
+export 'src/cache_sweep_window.dart';
 export 'src/dvm_job.dart';
 export 'src/dvm_job_status.dart';
 export 'src/dvm_job_store.dart';

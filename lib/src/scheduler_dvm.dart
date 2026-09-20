@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:ndk/ndk.dart';
 import 'package:sync_engine_shim_for_ndk/sync_engine_shim_for_ndk.dart';
 
+import 'cache_sweep_window.dart';
 import 'dvm_job.dart';
 import 'dvm_job_status.dart';
 import 'feedback_publisher.dart';
@@ -150,6 +151,7 @@ class SchedulerDvm {
 
   Future<void> _ingestSynced() async {
     final cache = config.ndk.config.cache;
+    final since = _sweepFloor;
     final requestTags = {
       '#p': [config.dvmPubkey],
     };
@@ -157,12 +159,14 @@ class SchedulerDvm {
     final requests = await cache.loadEvents(
       kinds: [requestKind],
       tags: requestTags,
+      since: since,
     );
     // NDK hides a request once its deletion is cached, yet a request cancelled
     // before we saw it still owes its client a cancelled feedback.
     final deletedRequests = await cache.loadHiddenEvents(
       kinds: [requestKind],
       tags: requestTags,
+      since: since,
       reasons: {HiddenEventReason.deleted},
     );
     for (final event in [
@@ -175,10 +179,23 @@ class SchedulerDvm {
     final deletions = await cache.loadEvents(
       kinds: [deleteKind],
       tags: _deletionFilter.tags,
+      since: since,
     );
     for (final event in deletions) {
       await _ingest(event, _handleDeletion);
     }
+  }
+
+  /// No `limit` goes with this: on some backends it is pushed into the query
+  /// ahead of the visibility rules, which would drop requests silently.
+  int? get _sweepFloor {
+    final handle = _syncHandle;
+    if (handle == null) return null;
+
+    return cacheSweepFloor(
+      config.syncEngine.status(handle).relayStates,
+      overlapMargin: config.syncEngine.overlapMargin,
+    );
   }
 
   Future<void> _ingest(
