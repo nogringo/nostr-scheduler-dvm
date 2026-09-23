@@ -6,6 +6,7 @@ import 'package:ndk/ndk.dart';
 
 import 'scheduler_dvm_config.dart';
 
+/// Signs and broadcasts the DVM's feedback and its NIP-89 announcement.
 class FeedbackPublisher {
   static const int feedbackKind = 7000;
   static const int discoveryKind = 31990;
@@ -25,6 +26,8 @@ class FeedbackPublisher {
     _profile = profile;
   }
 
+  /// Relay failures and timeouts are ignored, so it only throws when
+  /// encryption or signing fails.
   Future<Nip01Event> publishFeedback({
     required String jobId,
     required String clientPubkey,

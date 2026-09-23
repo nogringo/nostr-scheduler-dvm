@@ -4,8 +4,11 @@ import 'package:ndk/ndk.dart';
 
 import 'relay_url_policy.dart';
 
+/// Why [ScheduleRequestPayload.parseAndValidate] rejected a request.
 class PayloadValidationException implements Exception {
   final String message;
+
+  /// Null when the request failed before a valid `job_id` was read.
   final String? jobId;
 
   const PayloadValidationException(this.message, {this.jobId});
@@ -14,6 +17,7 @@ class PayloadValidationException implements Exception {
   String toString() => message;
 }
 
+/// The decrypted content of a schedule request.
 class ScheduleRequestPayload {
   static final RegExp _jobIdPattern = RegExp(r'^[0-9a-fA-F]{64}$');
 
@@ -29,6 +33,9 @@ class ScheduleRequestPayload {
     required this.relays,
   });
 
+  /// Throws a [PayloadValidationException] on a malformed payload, one past
+  /// [maxScheduleAt] or [maxRelays], a relay [relayPolicy] rejects, or a
+  /// signed event [eventVerifier] rejects.
   static Future<ScheduleRequestPayload> parseAndValidate(
     String payload, {
     required EventVerifier eventVerifier,

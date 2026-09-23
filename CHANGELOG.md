@@ -1,3 +1,9 @@
+## 0.5.1
+
+- Require `ndk: ^0.10.0-dev.6` and `sync_engine_shim_for_ndk: ^0.7.1`. 0.5.0
+  accepts ndk 0.10.0-dev.6 but does not compile against it, since that release
+  renames `RelayAuth` to `AuthPolicy`.
+
 ## 0.5.0
 
 - **Behavior change:** a target relay asking for NIP-42 is answered with a key

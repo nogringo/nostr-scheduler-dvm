@@ -5,8 +5,11 @@ import 'dvm_job_store.dart';
 import 'relay_url_policy.dart';
 import 'target_relay_auth.dart';
 
+/// Source of the current time, replaceable in tests.
 typedef DvmClock = DateTime Function();
 
+/// The relays a DVM runs on: its NIP-65 list or, when it has none, its
+/// bootstrap relays.
 class SchedulerDvmRelays {
   final List<String> bootstrapRelays;
   final List<String> readRelays;
@@ -35,6 +38,7 @@ class SchedulerDvmRelays {
   }
 }
 
+/// The name and about a DVM announces with NIP-89.
 class SchedulerDvmProfile {
   final String name;
   final String about;
@@ -47,6 +51,8 @@ class SchedulerDvmProfile {
   });
 }
 
+/// What a DVM runs with: its NDK instance, key, job store and sync engine, and
+/// the limits it puts on requests.
 class SchedulerDvmConfig {
   static const String defaultName = 'Scheduler DVM';
   static const String defaultAbout = 'Schedule any signed Nostr event.';
@@ -73,8 +79,14 @@ class SchedulerDvmConfig {
   /// is empty, the package falls back to `ndk.config.bootstrapRelays`.
   final List<String> bootstrapRelays;
 
+  /// Announced when the DVM's `kind:0` has no name. Defaults to [defaultName].
   final String? name;
+
+  /// Announced when the DVM's `kind:0` has no about. Defaults to
+  /// [defaultAbout].
   final String? about;
+
+  /// Whether the DVM announces itself with NIP-89 when it starts.
   final bool announceNip89;
 
   /// Requests whose `schedule_at` is further ahead than this are rejected.
@@ -141,6 +153,9 @@ class SchedulerDvmConfig {
        _configuredSigner = signer,
        clock = clock ?? DateTime.now;
 
+  /// The given signer, else that of the account logged in on [ndk].
+  ///
+  /// Throws a [StateError] when the one picked cannot sign.
   EventSigner get signer {
     final resolved =
         _resolvedSigner ??

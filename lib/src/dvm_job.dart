@@ -2,9 +2,14 @@ import 'package:ndk/ndk.dart';
 
 import 'dvm_job_status.dart';
 
+/// A scheduled event and its status. Times are unix timestamps in seconds.
 class DvmJob {
+  /// The client's label for the job, unique per client only.
   final String jobId;
+
+  /// Id of the schedule request, which identifies the job.
   final String requestEventId;
+
   final String clientPubkey;
   final String dvmPubkey;
   final int scheduleAt;
@@ -15,6 +20,9 @@ class DvmJob {
   final int? publishedAt;
   final int? cancelledAt;
   final DvmJobStatus status;
+
+  /// How the job ended, such as the relays' answers to the publish. Null while
+  /// it is still scheduled.
   final String? lastMessage;
 
   const DvmJob({

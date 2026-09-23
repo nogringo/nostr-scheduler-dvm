@@ -6,8 +6,12 @@ import 'dart:math';
 import 'dvm_job.dart';
 import 'scheduler_dvm_config.dart';
 
+/// Called with the request event id of a job whose `schedule_at` has come.
+/// Errors it throws are ignored.
 typedef DueJobHandler = Future<void> Function(String requestEventId);
 
+/// Calls a [DueJobHandler] as each job falls due. Its timers live in memory,
+/// so jobs must be scheduled again after a restart.
 class ScheduleRunner {
   /// Longer waits are chained, since a far `schedule_at` overflows `Duration`.
   static const int maxTimerDelaySeconds = 24 * 60 * 60;
@@ -20,6 +24,8 @@ class ScheduleRunner {
     : _clock = clock,
       _onDue = onDue;
 
+  /// Replaces the job's pending timer. A due job runs at once, a finished one
+  /// not at all.
   void schedule(DvmJob job) {
     cancel(job.requestEventId);
     if (job.isTerminal) return;

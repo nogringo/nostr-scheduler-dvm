@@ -12,6 +12,8 @@ import 'schedule_runner.dart';
 import 'scheduler_dvm_config.dart';
 import 'target_relay_auth.dart';
 
+/// Publishes each event scheduled with the DVM when it falls due, unless its
+/// client cancels it first.
 class SchedulerDvm {
   static const int requestKind = 5905;
   static const int deleteKind = 5;
@@ -53,6 +55,8 @@ class SchedulerDvm {
 
   SchedulerDvmProfile get profile => _profile;
 
+  /// Subscribes to requests and cancellations, catches up on those published
+  /// while the DVM was stopped, and restores the timers of the stored jobs.
   Future<void> start() async {
     if (_started) return;
     _started = true;
@@ -91,6 +95,8 @@ class SchedulerDvm {
     await _ingestSynced();
   }
 
+  /// Stops serving requests. Unlike [dispose], leaves
+  /// [SchedulerDvmConfig.store] open.
   Future<void> stop() async {
     if (!_started) return;
     _started = false;
@@ -114,6 +120,7 @@ class SchedulerDvm {
     await _runner.dispose();
   }
 
+  /// Stops the DVM and closes [SchedulerDvmConfig.store].
   Future<void> dispose() async {
     await stop();
     await config.store.close();
@@ -522,16 +529,16 @@ class SchedulerDvm {
 
   /// Which identity a target relay asking for NIP-42 is answered with.
   ///
-  /// Always [RelayAuth.allow]: the event goes out on the anonymous connection,
+  /// Always [AuthPolicy.allow]: the event goes out on the anonymous connection,
   /// and only a relay that refuses it there ever sees an identity.
-  RelayAuth _targetRelayAuth() {
+  AuthPolicy _targetRelayAuth() {
     switch (config.targetRelayAuth) {
       case TargetRelayAuth.never:
-        return const RelayAuth.never();
+        return const AuthPolicy.never();
       case TargetRelayAuth.dvm:
-        return RelayAuth.allow(_dvmAccount());
+        return AuthPolicy.allow(_dvmAccount());
       case TargetRelayAuth.ephemeral:
-        return RelayAuth.allow(_ephemeralAccount());
+        return AuthPolicy.allow(_ephemeralAccount());
     }
   }
 
@@ -558,7 +565,7 @@ class SchedulerDvm {
   /// kept either: reusing it would tie the next job to this one, and a busy DVM
   /// would hold a socket per job.
   Future<void> _closeEphemeralAuthConnections(
-    RelayAuth auth,
+    AuthPolicy auth,
     Iterable<String> relayUrls,
   ) async {
     if (config.targetRelayAuth != TargetRelayAuth.ephemeral) return;

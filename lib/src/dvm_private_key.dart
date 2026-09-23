@@ -1,5 +1,6 @@
 import 'package:ndk/ndk.dart';
 
+/// Why [DvmPrivateKey.parse] rejected a key.
 class DvmPrivateKeyException implements Exception {
   final String message;
 
@@ -9,6 +10,7 @@ class DvmPrivateKeyException implements Exception {
   String toString() => message;
 }
 
+/// A DVM private key, parsed from 64 hex characters or an `nsec1` key.
 class DvmPrivateKey {
   static final RegExp _hexPattern = RegExp(r'^[0-9a-fA-F]{64}$');
 
@@ -16,6 +18,8 @@ class DvmPrivateKey {
 
   const DvmPrivateKey._(this.hex);
 
+  /// Trims [value] and accepts either form in any case. Throws a
+  /// [DvmPrivateKeyException] when it is neither.
   static DvmPrivateKey parse(String value) {
     final trimmed = value.trim();
     if (trimmed.isEmpty) {

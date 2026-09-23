@@ -1,3 +1,7 @@
+/// Portable core of a Nostr Scheduler DVM, which publishes a client's signed
+/// event at the time it asks for.
+///
+/// The wire format is the [Scheduler DVM spec](https://openspecs.uid.ovh/spec/npub1kg4sdvz3l4fr99n2jdz2vdxe2mpacva87hkdetv76ywacsfq5leqquw5te/scheduler-dvm).
 library;
 
 export 'src/cache_sweep_window.dart';

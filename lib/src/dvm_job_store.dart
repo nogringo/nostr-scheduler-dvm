@@ -4,7 +4,11 @@ import 'package:sembast/sembast.dart' as sembast;
 
 import 'dvm_job.dart';
 
+/// Where the DVM keeps its jobs. Implement it to use a database other than
+/// Sembast.
 abstract class DvmJobStore {
+  /// Inserts the job, or replaces the one with the same
+  /// [DvmJob.requestEventId].
   Future<void> putJob(DvmJob job);
 
   Future<DvmJob?> getJobByRequestEventId(String requestEventId);
@@ -17,11 +21,14 @@ abstract class DvmJobStore {
 
   Future<List<DvmJob>> listJobs();
 
+  /// The jobs still scheduled, which the DVM sets its timers from on start.
   Future<List<DvmJob>> listActiveJobs();
 
+  /// Called when the DVM is disposed.
   Future<void> close();
 }
 
+/// A [DvmJobStore] that keeps jobs in a Sembast database.
 class SembastDvmJobStore implements DvmJobStore {
   final sembast.Database _db;
   final sembast.StoreRef<String, Map<String, Object?>> _jobs;
@@ -29,6 +36,8 @@ class SembastDvmJobStore implements DvmJobStore {
 
   late final Future<void> _rekeyed = _rekeyLegacyRecords();
 
+  /// With `closeDatabase`, [close] closes the database too. Otherwise the
+  /// caller closes it.
   SembastDvmJobStore(
     this._db, {
     bool closeDatabase = false,

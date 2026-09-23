@@ -1,3 +1,4 @@
+/// Where a job stands. Every status but [scheduled] is final.
 enum DvmJobStatus { scheduled, published, failed, cancelled }
 
 extension DvmJobStatusX on DvmJobStatus {
