@@ -1,3 +1,7 @@
+## 0.5.2
+
+- Accept `ndk` up to `<0.12.0` and `sync_engine_shim_for_ndk` up to `<0.9.0`.
+
 ## 0.5.1
 
 - Require `ndk: ^0.10.0-dev.6` and `sync_engine_shim_for_ndk: ^0.7.1`. 0.5.0
