@@ -32,6 +32,7 @@ void main() {
   late EventScheduler clientScheduler;
   late SchedulerDvm dvm;
   late DvmJobStore dvmStore;
+  late Map<KeyPair, Nip65> relayNip65s;
   final dbsToClose = <dynamic>[];
   final dvmsToDispose = <SchedulerDvm>[];
   final ndksToDestroy = <Ndk>[];
@@ -39,12 +40,20 @@ void main() {
   final enginesToDispose = <SyncEngine>[];
   var syncDbCount = 0;
 
-  Future<SyncEngine> startSyncEngine(Ndk ndk) async {
+  Future<SyncEngine> startSyncEngine(
+    Ndk ndk, {
+    Duration relayListMaxAge = const Duration(hours: 1),
+  }) async {
     final db = await sembast_memory.databaseFactoryMemory.openDatabase(
       'sync-${syncDbCount++}-${relay.url}.db',
     );
     dbsToClose.add(db);
-    final engine = SyncEngine(ndk, db: db)..start();
+    final engine = SyncEngine(
+      ndk,
+      store: SembastSyncStore(db),
+      discoveryRelays: [relay.url],
+      relayListMaxAge: relayListMaxAge,
+    )..start();
     enginesToDispose.add(engine);
     return engine;
   }
@@ -56,6 +65,7 @@ void main() {
     required TargetRelayAuth targetRelayAuth,
     Ndk? ndk,
     EventSigner? signer,
+    SyncEngine? syncEngine,
   }) async {
     await dvm.dispose();
     dvmsToDispose.remove(dvm);
@@ -67,7 +77,7 @@ void main() {
     dbsToClose.add(db);
     dvm = _createDvm(
       ndk: dvmNdkToUse,
-      syncEngine: await startSyncEngine(dvmNdkToUse),
+      syncEngine: syncEngine ?? await startSyncEngine(dvmNdkToUse),
       signer: signer,
       database: db,
       bootstrapRelayUrl: relay.url,
@@ -120,8 +130,9 @@ void main() {
 
     // The mock relay serves NIP-65 and metadata from these maps, not from the
     // events it stores.
+    relayNip65s = {clientKey: clientNip65, dvmKey: dvmNip65};
     await relay.startServer(
-      nip65s: {clientKey: clientNip65, dvmKey: dvmNip65},
+      nip65s: relayNip65s,
       metadatas: {dvmKey.publicKey: dvmMetadata},
     );
 
@@ -704,6 +715,36 @@ void main() {
     await dvm.resync();
 
     final stored = await storedJob('b' * 64);
+    expect(stored?.status, DvmJobStatus.scheduled);
+    expect(stored?.requestEventId, request.id);
+  });
+
+  test('syncs from a relay the DVM NIP-65 list gains after start', () async {
+    await restartDvm(
+      targetRelayAuth: TargetRelayAuth.ephemeral,
+      syncEngine: await startSyncEngine(dvmNdk, relayListMaxAge: Duration.zero),
+    );
+
+    final newRelay = MockRelay(name: 'new inbox relay');
+    final request = await _validScheduleRequest(
+      clientNdk: clientNdk,
+      clientKey: clientKey,
+      dvmPubkey: dvmKey.publicKey,
+      relayUrl: newRelay.url,
+      jobId: 'c' * 64,
+    );
+    await newRelay.startServer(textNotes: {clientKey: request});
+    addTearDown(newRelay.stopServer);
+
+    relayNip65s[dvmKey] = Nip65(
+      pubKey: dvmKey.publicKey,
+      relays: {newRelay.url: ReadWriteMarker.readWrite},
+      createdAt: DateTime.now().millisecondsSinceEpoch ~/ 1000 + 1,
+    );
+
+    await dvm.resync();
+
+    final stored = await storedJob('c' * 64);
     expect(stored?.status, DvmJobStatus.scheduled);
     expect(stored?.requestEventId, request.id);
   });

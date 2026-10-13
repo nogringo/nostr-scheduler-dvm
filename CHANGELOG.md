@@ -1,3 +1,14 @@
+## 0.6.0
+
+- **Breaking**: require `sync_engine_shim_for_ndk: ^0.9.0`. The host building
+  the `SyncEngine` must move to it too, where it takes
+  `store: SembastSyncStore(db)` instead of `db`.
+- Schedule requests are synced from the DVM NIP-65 read relays, else its
+  bootstrap relays, and the engine reads that list again on every pass: a relay
+  change is followed without a restart or a `refreshRelays`. The engine looks
+  the list up on its own `discoveryRelays`, public indexers by default, so pass
+  the bootstrap relays there too when the DVM list only lives on them.
+
 ## 0.5.2
 
 - Accept `ndk` up to `<0.12.0` and `sync_engine_shim_for_ndk` up to `<0.9.0`.

@@ -23,7 +23,10 @@ private encrypted `kind:7000` feedback.
 Use a dedicated NDK instance logged in as the DVM:
 
 ```dart
-final syncEngine = SyncEngine(dvmNdk, db: database)..start();
+final syncEngine = SyncEngine(
+  dvmNdk,
+  store: SembastSyncStore(database),
+)..start();
 
 final dvm = SchedulerDvm(
   SchedulerDvmConfig(
@@ -58,6 +61,12 @@ await dvm.start();
 `ndk.config.eventVerifier` to validate the scheduled signed event. The caller
 owns the NDK lifecycle, signer lifecycle, database lifecycle, and sync engine
 lifecycle: start the engine, and dispose it after the DVM.
+
+The engine syncs requests from the DVM NIP-65 read relays, else its bootstrap
+relays, and reads that list again on every pass, so a relay change is followed
+without a restart. It looks the list up on its own `discoveryRelays`, public
+indexers by default: if the DVM list only lives on its bootstrap relays, pass
+them there too.
 
 A request scheduled further ahead than `maxScheduleAhead` (10 years by default),
 or asking for more than `maxRelaysPerJob` target relays (20 by default), is

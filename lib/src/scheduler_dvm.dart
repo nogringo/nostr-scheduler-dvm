@@ -64,6 +64,7 @@ class SchedulerDvm {
     await refreshRelays();
     await refreshProfile();
     _startSubscriptions();
+    _watchSync();
     await resync();
 
     for (final job in await config.store.listActiveJobs()) {
@@ -78,7 +79,6 @@ class SchedulerDvm {
   Future<SchedulerDvmRelays> refreshRelays() async {
     _relays = await config.resolveRelays(forceRefresh: true);
     _feedbackPublisher.updateRelays(_relays);
-    if (_started) await _watchSync();
     return _relays;
   }
 
@@ -137,14 +137,18 @@ class SchedulerDvm {
     },
   );
 
-  Future<void> _watchSync() async {
-    final previous = _syncHandle;
-    await _syncStatus?.cancel();
+  /// Same relays as [SchedulerDvmRelays.requestRelays], but read again on every
+  /// pass, so the sync follows a change of the DVM NIP-65 list on its own.
+  UrlSet get _requestRelaySet => UrlSet.fallback([
+    UrlSet.inbox(config.dvmPubkey),
+    UrlSet.explicit(config.bootstrapRelays),
+  ]);
 
+  void _watchSync() {
     final handle = config.syncEngine.ensure(
       SyncRequest(
         filters: [_scheduleRequestFilter, _deletionFilter],
-        relays: _relays.requestRelays,
+        relays: _requestRelaySet,
       ),
     );
     _syncHandle = handle;
@@ -152,8 +156,6 @@ class SchedulerDvm {
         .watchStatus(handle)
         .where((status) => status.phase == SyncRequestPhase.synced)
         .listen((_) => unawaited(_ingestSynced()));
-
-    if (previous != null) config.syncEngine.release(previous);
   }
 
   Future<void> _ingestSynced() async {
